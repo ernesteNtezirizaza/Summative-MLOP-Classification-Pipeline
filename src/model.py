@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, models
-from tensorflow.keras.applications import VGG16, ResNet50
+from tensorflow.keras.applications import MobileNetV2, ResNet50
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
@@ -26,7 +26,7 @@ class BrainTumorClassifier:
     Brain Tumor Classification Model using Transfer Learning.
     """
     
-    def __init__(self, img_size=(224, 224), num_classes=4, base_model_name='VGG16'):
+    def __init__(self, img_size=(224, 224), num_classes=4, base_model_name='MobileNetV2'):
         self.img_size = img_size
         self.num_classes = num_classes
         self.base_model_name = base_model_name
@@ -36,14 +36,15 @@ class BrainTumorClassifier:
         
     def build_model(self):
         """
-        Build a transfer learning model using pre-trained VGG16 or ResNet50.
+        Build a transfer learning model using pre-trained MobileNetV2 or ResNet50.
         """
         # Load pre-trained base model
-        if self.base_model_name == 'VGG16':
-            base_model = VGG16(
+        if self.base_model_name == 'MobileNetV2':
+            base_model = MobileNetV2(
                 weights='imagenet',
                 include_top=False,
-                input_shape=(*self.img_size, 3)
+                input_shape=(*self.img_size, 3),
+                alpha=1.0  # Width multiplier, 1.0 is the default
             )
         elif self.base_model_name == 'ResNet50':
             base_model = ResNet50(
@@ -60,17 +61,26 @@ class BrainTumorClassifier:
         # Create the model
         inputs = keras.Input(shape=(*self.img_size, 3))
         
-        # Preprocessing
+        # Preprocessing - use both GlobalAveragePooling and GlobalMaxPooling for richer features
         x = base_model(inputs, training=False)
-        x = layers.GlobalAveragePooling2D()(x)
+        
+        # Concatenate both pooling strategies for better feature representation
+        avg_pool = layers.GlobalAveragePooling2D()(x)
+        max_pool = layers.GlobalMaxPooling2D()(x)
+        x = layers.Concatenate()([avg_pool, max_pool])
         
         # Add dropout for regularization
-        x = layers.Dropout(0.5)(x)
+        x = layers.Dropout(0.3)(x)
         
-        # Add dense layers
-        x = layers.Dense(512, activation='relu')(x)
+        # Enhanced classifier head with more capacity
+        x = layers.Dense(1024, activation='relu')(x)
         x = layers.BatchNormalization()(x)
         x = layers.Dropout(0.5)(x)
+        
+        x = layers.Dense(512, activation='relu')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.4)(x)
+        
         x = layers.Dense(256, activation='relu')(x)
         x = layers.BatchNormalization()(x)
         x = layers.Dropout(0.3)(x)
@@ -80,9 +90,9 @@ class BrainTumorClassifier:
         
         self.model = keras.Model(inputs, outputs)
         
-        # Compile with optimizer and learning rate
+        # Compile with optimizer and learning rate (optimized for high accuracy)
         self.model.compile(
-            optimizer=Adam(learning_rate=0.0001),
+            optimizer=Adam(learning_rate=0.0005),  # Balanced learning rate for stable training
             loss='categorical_crossentropy',
             metrics=['accuracy', 
                     keras.metrics.Precision(name='precision'),
@@ -96,25 +106,28 @@ class BrainTumorClassifier:
         Train the model with early stopping and learning rate reduction.
         Includes fine-tuning phase.
         """
-        # Callbacks
+        # Callbacks optimized for high accuracy
         callbacks = [
             EarlyStopping(
-                monitor='val_loss',
-                patience=10,
+                monitor='val_accuracy',  # Monitor accuracy instead of loss
+                patience=15,  # More patience for better convergence
                 restore_best_weights=True,
+                mode='max',
                 verbose=1
             ),
             ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,
+                monitor='val_accuracy',  # Monitor accuracy
+                factor=0.3,  # More aggressive LR reduction
                 patience=5,
-                min_lr=1e-7,
+                min_lr=1e-8,
+                mode='max',
                 verbose=1
             ),
             ModelCheckpoint(
                 'models/brain_tumor_model_best.h5',
                 monitor='val_accuracy',
                 save_best_only=True,
+                mode='max',
                 verbose=1
             )
         ]
@@ -129,20 +142,31 @@ class BrainTumorClassifier:
             verbose=1
         )
         
-        # Phase 2: Fine-tuning (unfreeze some layers)
+        # Phase 2: Fine-tuning (unfreeze more layers for better performance)
         print("\nPhase 2: Fine-tuning...")
-        if self.base_model_name == 'VGG16':
-            # Unfreeze last 4 blocks
-            for layer in self.model.layers[1].layers[-4:]:
-                layer.trainable = True
+        if self.base_model_name == 'MobileNetV2':
+            # Unfreeze more layers of MobileNetV2 for better fine-tuning
+            # MobileNetV2 has ~155 layers, unfreeze last 60 layers (more aggressive fine-tuning)
+            base_model = self.model.layers[1]
+            total_layers = len(base_model.layers)
+            # Unfreeze last 60 layers (approximately last 40% of the model)
+            trainable_count = 0
+            for i, layer in enumerate(base_model.layers):
+                # Unfreeze layers from index ~95 onwards (last 60 layers)
+                if i >= (total_layers - 60):
+                    layer.trainable = True
+                    trainable_count += 1
+            print(f"Unfroze {trainable_count} layers for fine-tuning (out of {total_layers} total layers)")
         elif self.base_model_name == 'ResNet50':
-            # Unfreeze last stage
-            for layer in self.model.layers[1].layers[-10:]:
+            # Unfreeze last 2 stages for ResNet50
+            base_model = self.model.layers[1]
+            for layer in base_model.layers[-30:]:
                 layer.trainable = True
+            print(f"Unfroze last 30 layers for ResNet50 fine-tuning")
         
         # Recompile with lower learning rate for fine-tuning
         self.model.compile(
-            optimizer=Adam(learning_rate=0.00001),
+            optimizer=Adam(learning_rate=0.00005),  # Slightly higher for better fine-tuning
             loss='categorical_crossentropy',
             metrics=['accuracy',
                     keras.metrics.Precision(name='precision'),
@@ -301,7 +325,7 @@ def train_model(data_dir='data/train', epochs=50, fine_tune_epochs=10):
     classifier = BrainTumorClassifier(
         img_size=(224, 224),
         num_classes=len(class_names),
-        base_model_name='VGG16'
+        base_model_name='MobileNetV2'
     )
     classifier.class_names = class_names
     classifier.build_model()

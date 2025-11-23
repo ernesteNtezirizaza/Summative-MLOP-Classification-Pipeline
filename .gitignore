@@ -44,7 +44,8 @@ Thumbs.db
 # !models/.gitkeep
 
 # Data (if large) - uncomment if data is too large
-# data/
+data/train/
+data/test/
 
 # Feature CSVs (can be regenerated)
 image_features*.csv
