@@ -1,0 +1,344 @@
+"""
+Model creation and training module for brain tumor classification.
+Uses transfer learning with pre-trained models and includes comprehensive evaluation.
+"""
+
+import os
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers, models
+from tensorflow.keras.applications import VGG16, ResNet50
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pickle
+from src.preprocessing import prepare_data_for_training, get_class_names
+
+
+class BrainTumorClassifier:
+    """
+    Brain Tumor Classification Model using Transfer Learning.
+    """
+    
+    def __init__(self, img_size=(224, 224), num_classes=4, base_model_name='VGG16'):
+        self.img_size = img_size
+        self.num_classes = num_classes
+        self.base_model_name = base_model_name
+        self.model = None
+        self.history = None
+        self.class_names = None
+        
+    def build_model(self):
+        """
+        Build a transfer learning model using pre-trained VGG16 or ResNet50.
+        """
+        # Load pre-trained base model
+        if self.base_model_name == 'VGG16':
+            base_model = VGG16(
+                weights='imagenet',
+                include_top=False,
+                input_shape=(*self.img_size, 3)
+            )
+        elif self.base_model_name == 'ResNet50':
+            base_model = ResNet50(
+                weights='imagenet',
+                include_top=False,
+                input_shape=(*self.img_size, 3)
+            )
+        else:
+            raise ValueError(f"Unknown base model: {self.base_model_name}")
+        
+        # Freeze base model layers initially
+        base_model.trainable = False
+        
+        # Create the model
+        inputs = keras.Input(shape=(*self.img_size, 3))
+        
+        # Preprocessing
+        x = base_model(inputs, training=False)
+        x = layers.GlobalAveragePooling2D()(x)
+        
+        # Add dropout for regularization
+        x = layers.Dropout(0.5)(x)
+        
+        # Add dense layers
+        x = layers.Dense(512, activation='relu')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.5)(x)
+        x = layers.Dense(256, activation='relu')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.3)(x)
+        
+        # Output layer
+        outputs = layers.Dense(self.num_classes, activation='softmax')(x)
+        
+        self.model = keras.Model(inputs, outputs)
+        
+        # Compile with optimizer and learning rate
+        self.model.compile(
+            optimizer=Adam(learning_rate=0.0001),
+            loss='categorical_crossentropy',
+            metrics=['accuracy', 
+                    keras.metrics.Precision(name='precision'),
+                    keras.metrics.Recall(name='recall')]
+        )
+        
+        return self.model
+    
+    def train(self, train_generator, val_generator, epochs=50, fine_tune_epochs=10):
+        """
+        Train the model with early stopping and learning rate reduction.
+        Includes fine-tuning phase.
+        """
+        # Callbacks
+        callbacks = [
+            EarlyStopping(
+                monitor='val_loss',
+                patience=10,
+                restore_best_weights=True,
+                verbose=1
+            ),
+            ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=5,
+                min_lr=1e-7,
+                verbose=1
+            ),
+            ModelCheckpoint(
+                'models/brain_tumor_model_best.h5',
+                monitor='val_accuracy',
+                save_best_only=True,
+                verbose=1
+            )
+        ]
+        
+        # Phase 1: Train with frozen base model
+        print("Phase 1: Training with frozen base model...")
+        self.history = self.model.fit(
+            train_generator,
+            epochs=epochs,
+            validation_data=val_generator,
+            callbacks=callbacks,
+            verbose=1
+        )
+        
+        # Phase 2: Fine-tuning (unfreeze some layers)
+        print("\nPhase 2: Fine-tuning...")
+        if self.base_model_name == 'VGG16':
+            # Unfreeze last 4 blocks
+            for layer in self.model.layers[1].layers[-4:]:
+                layer.trainable = True
+        elif self.base_model_name == 'ResNet50':
+            # Unfreeze last stage
+            for layer in self.model.layers[1].layers[-10:]:
+                layer.trainable = True
+        
+        # Recompile with lower learning rate for fine-tuning
+        self.model.compile(
+            optimizer=Adam(learning_rate=0.00001),
+            loss='categorical_crossentropy',
+            metrics=['accuracy',
+                    keras.metrics.Precision(name='precision'),
+                    keras.metrics.Recall(name='recall')]
+        )
+        
+        # Fine-tune
+        fine_tune_history = self.model.fit(
+            train_generator,
+            epochs=fine_tune_epochs,
+            validation_data=val_generator,
+            callbacks=callbacks,
+            verbose=1
+        )
+        
+        # Combine histories
+        for key in self.history.history.keys():
+            self.history.history[key].extend(fine_tune_history.history[key])
+        
+        return self.history
+    
+    def evaluate(self, test_generator):
+        """
+        Evaluate the model and return comprehensive metrics.
+        """
+        # Predictions
+        predictions = self.model.predict(test_generator)
+        predicted_classes = np.argmax(predictions, axis=1)
+        true_classes = test_generator.classes
+        
+        # Get class names
+        class_names = list(test_generator.class_indices.keys())
+        
+        # Calculate metrics
+        accuracy = accuracy_score(true_classes, predicted_classes)
+        
+        # Classification report
+        report = classification_report(
+            true_classes,
+            predicted_classes,
+            target_names=class_names,
+            output_dict=True
+        )
+        
+        # Confusion matrix
+        cm = confusion_matrix(true_classes, predicted_classes)
+        
+        # Per-class metrics
+        precision = report['weighted avg']['precision']
+        recall = report['weighted avg']['recall']
+        f1 = report['weighted avg']['f1-score']
+        
+        results = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1,
+            'classification_report': report,
+            'confusion_matrix': cm,
+            'class_names': class_names
+        }
+        
+        return results
+    
+    def plot_training_history(self, save_path='models/training_history.png'):
+        """
+        Plot training history (loss and accuracy curves).
+        """
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        
+        # Loss
+        axes[0, 0].plot(self.history.history['loss'], label='Training Loss')
+        axes[0, 0].plot(self.history.history['val_loss'], label='Validation Loss')
+        axes[0, 0].set_title('Model Loss')
+        axes[0, 0].set_xlabel('Epoch')
+        axes[0, 0].set_ylabel('Loss')
+        axes[0, 0].legend()
+        
+        # Accuracy
+        axes[0, 1].plot(self.history.history['accuracy'], label='Training Accuracy')
+        axes[0, 1].plot(self.history.history['val_accuracy'], label='Validation Accuracy')
+        axes[0, 1].set_title('Model Accuracy')
+        axes[0, 1].set_xlabel('Epoch')
+        axes[0, 1].set_ylabel('Accuracy')
+        axes[0, 1].legend()
+        
+        # Precision
+        axes[1, 0].plot(self.history.history['precision'], label='Training Precision')
+        axes[1, 0].plot(self.history.history['val_precision'], label='Validation Precision')
+        axes[1, 0].set_title('Model Precision')
+        axes[1, 0].set_xlabel('Epoch')
+        axes[1, 0].set_ylabel('Precision')
+        axes[1, 0].legend()
+        
+        # Recall
+        axes[1, 1].plot(self.history.history['recall'], label='Training Recall')
+        axes[1, 1].plot(self.history.history['val_recall'], label='Validation Recall')
+        axes[1, 1].set_title('Model Recall')
+        axes[1, 1].set_xlabel('Epoch')
+        axes[1, 1].set_ylabel('Recall')
+        axes[1, 1].legend()
+        
+        plt.tight_layout()
+        plt.savefig(save_path)
+        print(f"Training history saved to {save_path}")
+        plt.close()
+    
+    def plot_confusion_matrix(self, cm, class_names, save_path='models/confusion_matrix.png'):
+        """
+        Plot confusion matrix.
+        """
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                   xticklabels=class_names, yticklabels=class_names)
+        plt.title('Confusion Matrix')
+        plt.ylabel('True Label')
+        plt.xlabel('Predicted Label')
+        plt.tight_layout()
+        plt.savefig(save_path)
+        print(f"Confusion matrix saved to {save_path}")
+        plt.close()
+    
+    def save_model(self, filepath='models/brain_tumor_model.h5'):
+        """
+        Save the trained model.
+        """
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        self.model.save(filepath)
+        print(f"Model saved to {filepath}")
+    
+    def load_model(self, filepath='models/brain_tumor_model.h5'):
+        """
+        Load a saved model.
+        """
+        self.model = keras.models.load_model(filepath)
+        print(f"Model loaded from {filepath}")
+        return self.model
+
+
+def train_model(data_dir='data/train', epochs=50, fine_tune_epochs=10):
+    """
+    Main training function.
+    """
+    # Create models directory
+    os.makedirs('models', exist_ok=True)
+    
+    # Prepare data
+    print("Preparing data...")
+    train_gen, val_gen = prepare_data_for_training(data_dir)
+    
+    # Get class names
+    class_names = list(train_gen.class_indices.keys())
+    print(f"Classes: {class_names}")
+    
+    # Create and build model
+    classifier = BrainTumorClassifier(
+        img_size=(224, 224),
+        num_classes=len(class_names),
+        base_model_name='VGG16'
+    )
+    classifier.class_names = class_names
+    classifier.build_model()
+    
+    # Print model summary
+    classifier.model.summary()
+    
+    # Train model
+    print("\nStarting training...")
+    classifier.train(train_gen, val_gen, epochs=epochs, fine_tune_epochs=fine_tune_epochs)
+    
+    # Evaluate on validation set
+    print("\nEvaluating model...")
+    results = classifier.evaluate(val_gen)
+    
+    print(f"\n=== Evaluation Results ===")
+    print(f"Accuracy: {results['accuracy']:.4f}")
+    print(f"Precision: {results['precision']:.4f}")
+    print(f"Recall: {results['recall']:.4f}")
+    print(f"F1-Score: {results['f1_score']:.4f}")
+    
+    # Plot results
+    classifier.plot_training_history()
+    classifier.plot_confusion_matrix(
+        results['confusion_matrix'],
+        results['class_names']
+    )
+    
+    # Save model
+    classifier.save_model()
+    
+    # Save class names
+    with open('models/class_names.pkl', 'wb') as f:
+        pickle.dump(class_names, f)
+    
+    return classifier, results
+
+
+if __name__ == "__main__":
+    # Train the model
+    classifier, results = train_model(epochs=30, fine_tune_epochs=5)
+    print("\nTraining completed!")
+
