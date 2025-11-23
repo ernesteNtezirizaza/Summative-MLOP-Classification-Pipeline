@@ -43,12 +43,19 @@ Thumbs.db
 # models/*.pkl
 # !models/.gitkeep
 
-# Data (if large) - uncomment if data is too large
-data/train/
-data/test/
-
-# Feature CSVs (can be regenerated)
-image_features*.csv
+# Data (if large) - ignore image files in train and test directories
+data/train/**/*.jpg
+data/train/**/*.jpeg
+data/train/**/*.png
+data/train/**/*.JPG
+data/train/**/*.JPEG
+data/train/**/*.PNG
+data/test/**/*.jpg
+data/test/**/*.jpeg
+data/test/**/*.png
+data/test/**/*.JPG
+data/test/**/*.JPEG
+data/test/**/*.PNG
 
 # Logs
 *.log
