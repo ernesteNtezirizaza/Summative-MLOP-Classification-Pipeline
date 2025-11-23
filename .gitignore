@@ -25,7 +25,7 @@ wheels/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-*.ipynb
+# *.ipynb  # Allow notebooks to be tracked
 
 # IDE
 .vscode/
@@ -38,12 +38,12 @@ wheels/
 .DS_Store
 Thumbs.db
 
-# Models (large files)
-models/*.h5
-models/*.pkl
-!models/.gitkeep
+# Models (large files) - uncomment if models are too large
+# models/*.h5
+# models/*.pkl
+# !models/.gitkeep
 
-# Data (if large)
+# Data (if large) - uncomment if data is too large
 # data/
 
 # Feature CSVs (can be regenerated)
