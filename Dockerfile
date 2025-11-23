@@ -30,10 +30,11 @@ RUN mkdir -p models data/train data/test data/retrain_uploads
 # Expose port for Streamlit
 EXPOSE 8501
 
-# Health check
+# Health check (uses PORT environment variable)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8501/_stcore/health')" || exit 1
+    CMD sh -c "python -c \"import requests; requests.get('http://localhost:${PORT:-8501}/_stcore/health')\"" || exit 1
 
 # Run Streamlit app
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+# Use PORT environment variable if set (for Render), otherwise default to 8501
+CMD ["sh", "-c", "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0 --server.headless=true"]
 

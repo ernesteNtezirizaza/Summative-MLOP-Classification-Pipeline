@@ -18,9 +18,11 @@ import plotly.graph_objects as go
 try:
     from src.prediction import BrainTumorPredictor
     from src.preprocessing import extract_features_from_directory
+    from src.database import get_database
 except ImportError:
     from prediction import BrainTumorPredictor
     from preprocessing import extract_features_from_directory
+    from database import get_database
 import subprocess
 import sys
 
@@ -346,19 +348,42 @@ elif page == "📤 Upload Data":
             save_dir = f"data/retrain_uploads/{save_location}"
             os.makedirs(save_dir, exist_ok=True)
             
+            # Initialize database
+            db = get_database()
+            
             saved_count = 0
-            with st.spinner("Saving files..."):
+            saved_to_db = 0
+            with st.spinner("Saving files to disk and database..."):
                 for file in uploaded_files:
                     try:
                         file_path = os.path.join(save_dir, file.name)
                         with open(file_path, "wb") as f:
                             f.write(file.getbuffer())
+                        
+                        # Save to database
+                        image_id = db.save_uploaded_image(
+                            filename=file.name,
+                            class_name=save_location,
+                            file_path=file_path,
+                            file_size=file.size,
+                            metadata={
+                                'upload_source': 'streamlit_ui',
+                                'upload_timestamp': datetime.now().isoformat()
+                            }
+                        )
+                        saved_to_db += 1
                         saved_count += 1
                     except Exception as e:
                         st.error(f"Error saving {file.name}: {str(e)}")
             
             st.success(f"Successfully saved {saved_count} file(s) to {save_dir}")
+            st.success(f"✅ {saved_to_db} file(s) saved to database")
             st.info("Files are ready for retraining. Go to 'Retrain Model' to trigger retraining.")
+            
+            # Show database statistics
+            stats = db.get_training_statistics()
+            st.info(f"📊 Database: {stats['total_uploaded_images']} total images uploaded, "
+                   f"{stats['processed_images']} processed")
 
 
 # Retrain Model Page
@@ -366,22 +391,60 @@ elif page == "🔄 Retrain Model":
     st.title("Retrain Model")
     st.markdown("Trigger model retraining with newly uploaded data.")
     
+    # Initialize database
+    db = get_database()
+    
+    # Show database statistics
+    stats = db.get_training_statistics()
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Uploaded", stats['total_uploaded_images'])
+    with col2:
+        st.metric("Processed", stats['processed_images'])
+    with col3:
+        st.metric("Training Sessions", stats['total_training_sessions'])
+    with col4:
+        st.metric("Completed", stats['completed_sessions'])
+    
+    # Show images by class
+    if stats['images_by_class']:
+        st.subheader("Uploaded Images by Class")
+        class_df = pd.DataFrame(list(stats['images_by_class'].items()), 
+                               columns=['Class', 'Count'])
+        st.bar_chart(class_df.set_index('Class'))
+    
     # Check for uploaded data
     retrain_dir = "data/retrain_uploads"
     has_data = False
+    
+    # Check database for unprocessed images
+    unprocessed_images = db.get_uploaded_images(processed=False)
     
     if os.path.exists(retrain_dir):
         total_files = 0
         for root, dirs, files in os.walk(retrain_dir):
             total_files += len([f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
         
-        if total_files > 0:
+        if total_files > 0 or len(unprocessed_images) > 0:
             has_data = True
-            st.info(f"Found {total_files} image(s) ready for retraining in {retrain_dir}")
+            st.info(f"Found {total_files} image(s) in directory, {len(unprocessed_images)} unprocessed in database")
         else:
             st.warning("No images found for retraining. Please upload data first.")
     else:
         st.warning("Retraining directory not found. Please upload data first.")
+    
+    # Show recent training sessions
+    st.subheader("Recent Training Sessions")
+    recent_sessions = db.get_training_sessions(limit=5)
+    if recent_sessions:
+        sessions_df = pd.DataFrame(recent_sessions)
+        # Format columns for display
+        display_cols = ['id', 'session_timestamp', 'status', 'epochs', 
+                       'final_accuracy', 'images_used']
+        available_cols = [col for col in display_cols if col in sessions_df.columns]
+        st.dataframe(sessions_df[available_cols], use_container_width=True)
+    else:
+        st.info("No training sessions yet.")
     
     if has_data:
         st.subheader("Retraining Configuration")

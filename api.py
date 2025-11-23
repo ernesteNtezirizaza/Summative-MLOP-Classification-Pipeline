@@ -181,39 +181,59 @@ async def predict_batch(files: list[UploadFile] = File(...)):
 
 
 @app.post("/retrain")
-async def trigger_retrain(files: list[UploadFile] = File(...)):
+async def trigger_retrain(files: list[UploadFile] = File(...), class_name: str = "unknown"):
     """
-    Upload images for retraining and trigger retraining process.
+    Upload images for retraining and save to database.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
+    
+    # Import database
+    try:
+        from src.database import get_database
+    except ImportError:
+        from database import get_database
+    
+    db = get_database()
     
     # Create upload directory
     upload_dir = "data/retrain_uploads"
     os.makedirs(upload_dir, exist_ok=True)
     
     saved_files = []
+    saved_to_db = []
     
     try:
         # Save uploaded files
         for file in files:
-            # Determine class from filename or use a default
-            # In production, you might want to require class labels
             contents = await file.read()
             file_path = os.path.join(upload_dir, file.filename)
             
+            # Save to disk
             with open(file_path, "wb") as f:
                 f.write(contents)
             
+            # Save to database
+            image_id = db.save_uploaded_image(
+                filename=file.filename,
+                class_name=class_name,
+                file_path=file_path,
+                file_size=len(contents),
+                metadata={
+                    'upload_source': 'api',
+                    'upload_timestamp': datetime.now().isoformat()
+                }
+            )
+            
             saved_files.append(file_path)
+            saved_to_db.append(image_id)
         
-        # Trigger retraining (this would typically be done asynchronously)
-        # For now, return success message
         return JSONResponse({
-            "message": "Files uploaded successfully. Retraining triggered.",
+            "message": "Files uploaded successfully and saved to database.",
             "files_uploaded": len(saved_files),
+            "database_ids": saved_to_db,
             "file_paths": saved_files,
-            "note": "Retraining will be processed. Check /retrain/status for progress.",
+            "note": "Files are ready for retraining. Use retrain endpoint to trigger training.",
             "timestamp": datetime.now().isoformat()
         })
     
@@ -223,12 +243,44 @@ async def trigger_retrain(files: list[UploadFile] = File(...)):
 
 @app.get("/retrain/status")
 async def retrain_status():
-    """Get retraining status."""
-    return {
-        "status": "not_implemented",
-        "message": "Check retraining logs for status",
-        "timestamp": datetime.now().isoformat()
-    }
+    """Get retraining status from database."""
+    try:
+        from src.database import get_database
+    except ImportError:
+        from database import get_database
+    
+    db = get_database()
+    sessions = db.get_training_sessions(limit=1)
+    
+    if sessions:
+        latest = sessions[0]
+        return {
+            "status": latest['status'],
+            "session_id": latest['id'],
+            "timestamp": latest['session_timestamp'],
+            "final_accuracy": latest.get('final_accuracy'),
+            "images_used": latest.get('images_used'),
+            "message": f"Latest training session: {latest['status']}"
+        }
+    else:
+        return {
+            "status": "no_sessions",
+            "message": "No training sessions found",
+            "timestamp": datetime.now().isoformat()
+        }
+
+
+@app.get("/database/stats")
+async def get_database_stats():
+    """Get database statistics."""
+    try:
+        from src.database import get_database
+    except ImportError:
+        from database import get_database
+    
+    db = get_database()
+    stats = db.get_training_statistics()
+    return stats
 
 
 if __name__ == "__main__":

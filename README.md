@@ -9,14 +9,19 @@ This project implements an end-to-end Machine Learning Operations (MLOPs) pipeli
 - **Image Classification**: Deep learning model for brain tumor classification
 - **Feature Extraction**: Extracts image features and saves to CSV
 - **Model Training & Evaluation**: Comprehensive evaluation with multiple metrics
+- **Database System**: SQLite database for tracking:
+  - Uploaded images and metadata
+  - Preprocessing activities and logs
+  - Training sessions with complete metrics history
 - **REST API**: FastAPI-based prediction endpoints
 - **Streamlit UI**: Interactive web interface with:
   - Single image prediction
   - Data visualizations (3+ feature interpretations)
-  - Bulk data upload for retraining
+  - Bulk data upload for retraining (saved to database)
   - Retraining trigger functionality
   - Model uptime monitoring
-- **Retraining Pipeline**: Automated retraining with data upload
+  - Database statistics and training history
+- **Retraining Pipeline**: Automated retraining with data upload and database tracking
 - **Load Testing**: Locust-based performance testing
 - **Cloud Deployment**: Dockerized application ready for Render deployment
 
@@ -36,14 +41,16 @@ The dataset is from Kaggle: [Brain Tumor MRI Dataset](https://www.kaggle.com/dat
 Summative-MLOP-Classification-Pipeline/
 │
 ├── README.md
+├── DATABASE_IMPLEMENTATION.md
 │
 ├── notebook/
 │   └── brain_tumor_classification.ipynb
 │
 ├── src/
-│   ├── preprocessing.py
-│   ├── model.py
-│   └── prediction.py
+│   ├── preprocessing.py      # Feature extraction
+│   ├── model.py              # Model training
+│   ├── prediction.py         # Prediction functions
+│   └── database.py           # Database management
 │
 ├── data/
 │   ├── train/
@@ -51,19 +58,34 @@ Summative-MLOP-Classification-Pipeline/
 │   │   ├── meningioma/
 │   │   ├── notumor/
 │   │   └── pituitary/
-│   └── test/
-│       ├── glioma/
-│       ├── meningioma/
-│       ├── notumor/
-│       └── pituitary/
+│   ├── test/
+│   │   ├── glioma/
+│   │   ├── meningioma/
+│   │   ├── notumor/
+│   │   └── pituitary/
+│   ├── processed/
+│   │   ├── image_features_train.csv
+│   │   └── image_features_test.csv
+│   ├── retrain_uploads/      # Uploaded images for retraining
+│   └── retraining_database.db # SQLite database
 │
 ├── models/
-│   └── (model files will be saved here)
+│   ├── brain_tumor_model.h5
+│   ├── class_names.pkl
+│   └── visualizations/       # Saved visualization images
+│       ├── class_distribution.png
+│       ├── sample_images.png
+│       ├── feature_distributions.png
+│       ├── training_history.png
+│       ├── learning_curves.png
+│       ├── confusion_matrix_validation.png
+│       ├── confusion_matrix_test.png
+│       └── sample_prediction.png
 │
-├── app.py (Streamlit UI)
-├── api.py (FastAPI endpoints)
-├── retrain.py (Retraining script)
-├── locustfile.py (Load testing)
+├── app.py                    # Streamlit UI
+├── api.py                    # FastAPI endpoints
+├── retrain.py                # Retraining script
+├── locustfile.py             # Load testing
 ├── Dockerfile
 ├── requirements.txt
 └── .dockerignore
@@ -181,16 +203,31 @@ docker run -p 8501:8501 brain-tumor-classifier
 ### Retraining
 
 1. **Via Streamlit UI:**
-   - Navigate to the "Retrain Model" tab
-   - Upload multiple images (bulk upload)
+   - Navigate to the "Upload Data" tab
+   - Upload multiple images (bulk upload) - **automatically saved to database**
+   - Navigate to "Retrain Model" tab
+   - View database statistics and recent training sessions
    - Click "Trigger Retraining" button
-   - Monitor the retraining process
+   - Monitor the retraining process (all activities logged to database)
 
 2. **Via API:**
    ```bash
+   # Upload images (saved to database)
    curl -X POST "http://localhost:8000/retrain" \
         -F "files=@image1.jpg" \
-        -F "files=@image2.jpg"
+        -F "files=@image2.jpg" \
+        -F "class_name=glioma"
+   
+   # Check training status
+   curl "http://localhost:8000/retrain/status"
+   
+   # Get database statistics
+   curl "http://localhost:8000/database/stats"
+   ```
+
+3. **Via Command Line:**
+   ```bash
+   python retrain.py [epochs] [fine_tune_epochs]
    ```
 
 ### Load Testing with Locust
@@ -216,11 +253,54 @@ python src/prediction.py data/test/glioma/image1.jpg
 
 ### Retraining
 
-1. Upload images via Streamlit UI or API
+1. Upload images via Streamlit UI or API (automatically saved to database)
 2. Trigger retraining via UI or command line:
 ```bash
-python retrain.py
+python retrain.py [epochs] [fine_tune_epochs]
 ```
+3. All retraining activities are logged to the database:
+   - Preprocessing logs (images processed, features extracted, timing)
+   - Training session metrics (accuracy, precision, recall, F1-score)
+   - Image usage tracking (which images were used in training)
+
+## Database Implementation
+
+The project includes a comprehensive SQLite database system that tracks the complete retraining pipeline:
+
+### Database Features
+
+1. **Data File Uploading + Saving to Database**
+   - All uploaded images are automatically saved to the database
+   - Tracks: filename, class, file path, size, upload timestamp, metadata
+   - Accessible via Streamlit UI and FastAPI endpoints
+
+2. **Data Preprocessing Logging**
+   - All preprocessing activities are logged to the database
+   - Tracks: images processed, features extracted, processing time, status
+   - Images are marked as "processed" after preprocessing
+
+3. **Retraining Session Tracking**
+   - Complete training history with metrics
+   - Tracks: epochs, accuracy, precision, recall, F1-score (before/after)
+   - Links uploaded images to training sessions
+   - Full audit trail for compliance
+
+### Database Schema
+
+- **`uploaded_images`**: Stores metadata for all uploaded images
+- **`training_sessions`**: Tracks each retraining session with metrics
+- **`preprocessing_logs`**: Logs preprocessing activities and timing
+
+### Database Access
+
+The database is automatically created at `data/retraining_database.db` on first use.
+
+**View Statistics:**
+- Streamlit UI: "Retrain Model" page shows database statistics
+- API: `GET /database/stats` endpoint
+- Python: `from src.database import get_database`
+
+For detailed documentation, see [DATABASE_IMPLEMENTATION.md](DATABASE_IMPLEMENTATION.md)
 
 ## Model Evaluation Metrics
 
@@ -232,19 +312,52 @@ The model is evaluated using:
 - **Confusion Matrix**: Visual representation of predictions
 - **Loss**: Training and validation loss curves
 
-## Deployment on Render
+All metrics are automatically saved to the database for each training session.
 
-1. **Create a Render account** and connect your GitHub repository
+## Deployment on Render (Docker)
 
-2. **Create a new Web Service:**
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`
+### Quick Steps
 
-3. **Environment Variables** (if needed):
-   - Set any required environment variables in Render dashboard
+1. **Push code to GitHub:**
+   ```bash
+   git add .
+   git commit -m "Prepare for Render deployment"
+   git push origin main
+   ```
 
-4. **Deploy:**
-   - Render will automatically deploy on push to main branch
+2. **Create Render account** at https://render.com and connect GitHub
+
+3. **Create new Web Service:**
+   - Click "New +" → "Web Service"
+   - Select your repository
+   - **IMPORTANT**: Choose **"Docker"** as build method (not Nixpacks)
+   - Render will automatically detect your Dockerfile
+
+4. **Configure:**
+   - **Name**: `brain-tumor-classifier` (or your choice)
+   - **Region**: Choose closest to users
+   - **Branch**: `main`
+   - **Instance Type**: Starter ($7/month) recommended (Free tier may not work with TensorFlow)
+
+5. **Environment Variables** (optional):
+   - `PORT`: Automatically set by Render
+   - `PYTHONUNBUFFERED`: `1` (recommended)
+
+6. **Deploy:**
+   - Click "Create Web Service"
+   - Wait for build (5-15 minutes)
+   - Your app will be live at: `https://your-app-name.onrender.com`
+
+### Detailed Guide
+
+For complete step-by-step instructions, see [RENDER_DOCKER_DEPLOYMENT.md](RENDER_DOCKER_DEPLOYMENT.md)
+
+### Important Notes
+
+- **Dockerfile**: Must use `${PORT}` environment variable (already configured)
+- **Model File**: Ensure `models/brain_tumor_model.h5` exists in repository
+- **Free Tier**: 512 MB RAM may be insufficient for TensorFlow
+- **Recommended**: Use Starter plan ($7/month) or higher for better performance
 
 ## Video Demo
 
@@ -271,27 +384,41 @@ Load testing results with different numbers of Docker containers will be documen
 ## Technologies Used
 
 - **Deep Learning**: TensorFlow/Keras
+- **Database**: SQLite (for tracking and audit trail)
 - **API Framework**: FastAPI
 - **UI Framework**: Streamlit
 - **Load Testing**: Locust
 - **Containerization**: Docker
 - **Cloud Platform**: Render
+- **Data Visualization**: Matplotlib, Seaborn, Plotly
 
 ## File Structure Details
 
 ```
 ├── src/
-│   ├── preprocessing.py  # Feature extraction
-│   ├── model.py          # Model training
-│   └── prediction.py     # Prediction functions
+│   ├── preprocessing.py  # Feature extraction from images
+│   ├── model.py          # Model training and evaluation
+│   ├── prediction.py     # Prediction functions
+│   └── database.py       # Database management and tracking
 ├── notebook/
-│   └── brain_tumor_classification.ipynb  # Complete pipeline
-├── app.py                # Streamlit UI
-├── api.py                # FastAPI endpoints
-├── retrain.py            # Retraining script
-├── locustfile.py         # Load testing
-├── Dockerfile            # Docker configuration
-└── requirements.txt      # Dependencies
+│   └── brain_tumor_classification.ipynb  # Complete ML pipeline
+├── data/
+│   ├── train/            # Training images (by class)
+│   ├── test/             # Test images (by class)
+│   ├── processed/        # Extracted features (CSV files)
+│   ├── retrain_uploads/  # Uploaded images for retraining
+│   └── retraining_database.db  # SQLite database
+├── models/
+│   ├── brain_tumor_model.h5        # Trained model (best checkpoint)
+│   ├── class_names.pkl             # Class labels
+│   └── visualizations/             # Saved plots and charts
+├── app.py                # Streamlit UI application
+├── api.py                # FastAPI REST endpoints
+├── retrain.py            # Retraining script with database logging
+├── locustfile.py         # Load testing configuration
+├── Dockerfile            # Docker container configuration
+├── requirements.txt      # Python dependencies
+└── DATABASE_IMPLEMENTATION.md  # Database documentation
 ```
 
 ## Author

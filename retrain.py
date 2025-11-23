@@ -7,14 +7,17 @@ import os
 import shutil
 import numpy as np
 from datetime import datetime
+import time
 try:
     from src.model import BrainTumorClassifier
     from src.preprocessing import extract_features_from_directory, prepare_data_for_training
+    from src.database import get_database
 except ImportError:
     import sys
     sys.path.insert(0, 'src')
     from model import BrainTumorClassifier
     from preprocessing import extract_features_from_directory, prepare_data_for_training
+    from database import get_database
 import pickle
 
 
@@ -75,31 +78,92 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     Main retraining function.
     
     Steps:
-    1. Prepare retraining data (move uploaded files to training directory)
-    2. Extract features from new data
-    3. Prepare data generators
-    4. Load existing model or create new one
-    5. Retrain the model
-    6. Evaluate and save
+    1. Create training session in database
+    2. Prepare retraining data (move uploaded files to training directory)
+    3. Extract features from new data (with database logging)
+    4. Prepare data generators
+    5. Load existing model or create new one
+    6. Retrain the model
+    7. Evaluate and save
+    8. Update database with results
     """
+    # Initialize database
+    db = get_database()
+    
+    # Create training session in database
+    training_session_id = db.create_training_session(
+        epochs=epochs,
+        fine_tune_epochs=fine_tune_epochs,
+        model_path=model_save_path,
+        notes=f"Retraining with data from {retrain_data_dir}"
+    )
+    
     print("=" * 50)
     print("Starting Model Retraining Process")
+    print(f"Training Session ID: {training_session_id}")
     print("=" * 50)
+    
+    # Update status to in_progress
+    db.update_training_session(training_session_id, status='in_progress')
     
     # Step 1: Prepare retraining data
     print("\nStep 1: Preparing retraining data...")
     if not prepare_retrain_data(retrain_data_dir, main_data_dir):
         print("No new data to retrain with. Exiting.")
+        db.update_training_session(training_session_id, status='failed', 
+                                   notes="No new data to retrain with")
         return False
+    
+    # Get uploaded images from database
+    uploaded_images = db.get_uploaded_images(processed=False)
+    image_ids = [img['id'] for img in uploaded_images]
     
     # Step 2: Extract features from updated training data
     print("\nStep 2: Extracting features from training data...")
+    preprocessing_start = time.time()
+    images_processed = 0
+    features_extracted = 0
+    
     try:
-        extract_features_from_directory(main_data_dir, 'data/processed/image_features_train.csv')
-        print("Feature extraction completed.")
+        # Count images before processing
+        for root, dirs, files in os.walk(main_data_dir):
+            images_processed += len([f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
+        
+        # Extract features
+        features_df = extract_features_from_directory(main_data_dir, 'data/processed/image_features_train.csv')
+        features_extracted = len(features_df) if features_df is not None else 0
+        
+        preprocessing_time = time.time() - preprocessing_start
+        
+        # Log preprocessing to database
+        db.log_preprocessing(
+            training_session_id=training_session_id,
+            images_processed=images_processed,
+            features_extracted=features_extracted,
+            processing_time=preprocessing_time,
+            status='completed'
+        )
+        
+        # Mark images as processed
+        if image_ids:
+            db.mark_images_processed(image_ids, training_session_id)
+        
+        print(f"Feature extraction completed: {images_processed} images, {features_extracted} features")
     except Exception as e:
-        print(f"Warning: Feature extraction failed: {str(e)}")
+        preprocessing_time = time.time() - preprocessing_start
+        error_msg = str(e)
+        print(f"Warning: Feature extraction failed: {error_msg}")
         print("Continuing with training...")
+        
+        # Log preprocessing failure
+        db.log_preprocessing(
+            training_session_id=training_session_id,
+            images_processed=images_processed,
+            features_extracted=0,
+            processing_time=preprocessing_time,
+            status='failed',
+            error_message=error_msg
+        )
     
     # Step 3: Prepare data generators
     print("\nStep 3: Preparing data generators...")
@@ -114,10 +178,22 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     
     # Step 4: Load or create model
     print("\nStep 4: Loading/Creating model...")
+    # Determine models directory (project root)
+    current_dir = os.path.abspath(os.getcwd())
+    if os.path.basename(current_dir) == 'notebook':
+        models_dir = os.path.join(os.path.dirname(current_dir), 'models')
+    elif os.path.exists(os.path.join(current_dir, 'src')):
+        models_dir = os.path.join(current_dir, 'models')
+    else:
+        models_dir = os.path.join(current_dir, 'models')
+    models_dir = os.path.abspath(models_dir)
+    os.makedirs(models_dir, exist_ok=True)
+    
     classifier = BrainTumorClassifier(
         img_size=(224, 224),
         num_classes=num_classes,
-        base_model_name='VGG16'
+        base_model_name='VGG16',
+        models_dir=models_dir
     )
     classifier.class_names = class_names
     
@@ -159,8 +235,15 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     
     # Step 6: Evaluate and save
     print("\nStep 6: Evaluating model...")
+    final_metrics = None
     try:
         results = classifier.evaluate(val_gen)
+        final_metrics = {
+            'accuracy': results['accuracy'],
+            'precision': results['precision'],
+            'recall': results['recall'],
+            'f1_score': results['f1_score']
+        }
         
         print(f"\n=== Retraining Evaluation Results ===")
         print(f"Accuracy: {results['accuracy']:.4f}")
@@ -169,11 +252,11 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
         print(f"F1-Score: {results['f1_score']:.4f}")
         
         # Plot results
-        classifier.plot_training_history('models/training_history_retrain.png')
+        classifier.plot_training_history('models/visualizations/training_history_retrain.png')
         classifier.plot_confusion_matrix(
             results['confusion_matrix'],
             results['class_names'],
-            'models/confusion_matrix_retrain.png'
+            'models/visualizations/confusion_matrix_retrain.png'
         )
     except Exception as e:
         print(f"Warning: Evaluation failed: {str(e)}")
@@ -184,13 +267,27 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
         classifier.save_model(model_save_path)
         
         # Save class names
-        with open('models/class_names.pkl', 'wb') as f:
+        class_names_path = os.path.join(models_dir, 'class_names.pkl')
+        with open(class_names_path, 'wb') as f:
             pickle.dump(class_names, f)
+        print(f"Class names saved to {class_names_path}")
         
         print("Model saved successfully.")
     except Exception as e:
         print(f"Error saving model: {str(e)}")
+        db.update_training_session(training_session_id, status='failed', 
+                                   notes=f"Error saving model: {str(e)}")
         return False
+    
+    # Step 8: Update database with final results
+    print("\nStep 8: Updating database with training results...")
+    db.update_training_session(
+        session_id=training_session_id,
+        status='completed',
+        final_metrics=final_metrics,
+        images_used=len(image_ids) if image_ids else images_processed
+    )
+    print("Database updated successfully.")
     
     # Clean up retrain_uploads directory (optional)
     print("\nCleaning up retraining uploads directory...")

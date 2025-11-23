@@ -26,13 +26,32 @@ class BrainTumorClassifier:
     Brain Tumor Classification Model using Transfer Learning.
     """
     
-    def __init__(self, img_size=(224, 224), num_classes=4, base_model_name='MobileNetV2'):
+    def __init__(self, img_size=(224, 224), num_classes=4, base_model_name='MobileNetV2', models_dir=None):
         self.img_size = img_size
         self.num_classes = num_classes
         self.base_model_name = base_model_name
         self.model = None
         self.history = None
         self.class_names = None
+        
+        # Determine project root and models directory
+        if models_dir is None:
+            # Try to find project root (look for src/ or notebook/ directories)
+            current_dir = os.path.abspath(os.getcwd())
+            if os.path.basename(current_dir) == 'notebook':
+                # Running from notebook folder
+                self.models_dir = os.path.join(os.path.dirname(current_dir), 'models')
+            elif os.path.exists(os.path.join(current_dir, 'src')):
+                # Running from project root
+                self.models_dir = os.path.join(current_dir, 'models')
+            else:
+                # Fallback: use current directory
+                self.models_dir = os.path.join(current_dir, 'models')
+        else:
+            self.models_dir = os.path.abspath(models_dir)
+        
+        # Ensure models directory exists
+        os.makedirs(self.models_dir, exist_ok=True)
         
     def build_model(self):
         """
@@ -106,6 +125,9 @@ class BrainTumorClassifier:
         Train the model with early stopping and learning rate reduction.
         Includes fine-tuning phase.
         """
+        # Get model path in project root's models folder
+        model_path = os.path.join(self.models_dir, 'brain_tumor_model.h5')
+        
         # Callbacks optimized for high accuracy
         callbacks = [
             EarlyStopping(
@@ -124,7 +146,7 @@ class BrainTumorClassifier:
                 verbose=1
             ),
             ModelCheckpoint(
-                'models/brain_tumor_model_best.h5',
+                model_path,
                 monitor='val_accuracy',
                 save_best_only=True,
                 mode='max',
@@ -231,10 +253,26 @@ class BrainTumorClassifier:
         
         return results
     
-    def plot_training_history(self, save_path='models/training_history.png'):
+    def plot_training_history(self, save_path=None):
         """
         Plot training history (loss and accuracy curves).
+        
+        Args:
+            save_path: Path to save plot (defaults to models/visualizations/training_history.png)
         """
+        if save_path is None:
+            viz_dir = os.path.join(self.models_dir, 'visualizations')
+            save_path = os.path.join(viz_dir, 'training_history.png')
+        else:
+            # If relative path, make it relative to models_dir
+            if not os.path.isabs(save_path):
+                save_path = os.path.join(self.models_dir, save_path)
+        
+        # Create directory if it doesn't exist
+        save_dir = os.path.dirname(save_path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+        
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
         
         # Loss
@@ -274,10 +312,28 @@ class BrainTumorClassifier:
         print(f"Training history saved to {save_path}")
         plt.close()
     
-    def plot_confusion_matrix(self, cm, class_names, save_path='models/confusion_matrix.png'):
+    def plot_confusion_matrix(self, cm, class_names, save_path=None):
         """
         Plot confusion matrix.
+        
+        Args:
+            cm: Confusion matrix
+            class_names: List of class names
+            save_path: Path to save plot (defaults to models/visualizations/confusion_matrix.png)
         """
+        if save_path is None:
+            viz_dir = os.path.join(self.models_dir, 'visualizations')
+            save_path = os.path.join(viz_dir, 'confusion_matrix.png')
+        else:
+            # If relative path, make it relative to models_dir
+            if not os.path.isabs(save_path):
+                save_path = os.path.join(self.models_dir, save_path)
+        
+        # Create directory if it doesn't exist
+        save_dir = os.path.dirname(save_path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+        
         plt.figure(figsize=(10, 8))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                    xticklabels=class_names, yticklabels=class_names)
@@ -289,29 +345,65 @@ class BrainTumorClassifier:
         print(f"Confusion matrix saved to {save_path}")
         plt.close()
     
-    def save_model(self, filepath='models/brain_tumor_model.h5'):
+    def save_model(self, filepath=None):
         """
         Save the trained model.
+        
+        Args:
+            filepath: Path to save model (defaults to models/brain_tumor_model.h5 in project root)
         """
+        if filepath is None:
+            filepath = os.path.join(self.models_dir, 'brain_tumor_model.h5')
+        else:
+            # If relative path, make it relative to models_dir
+            if not os.path.isabs(filepath):
+                filepath = os.path.join(self.models_dir, filepath)
+        
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         self.model.save(filepath)
         print(f"Model saved to {filepath}")
     
-    def load_model(self, filepath='models/brain_tumor_model.h5'):
+    def load_model(self, filepath=None):
         """
         Load a saved model.
+        
+        Args:
+            filepath: Path to load model from (defaults to models/brain_tumor_model.h5 in project root)
         """
+        if filepath is None:
+            filepath = os.path.join(self.models_dir, 'brain_tumor_model.h5')
+        else:
+            # If relative path, make it relative to models_dir
+            if not os.path.isabs(filepath):
+                filepath = os.path.join(self.models_dir, filepath)
+        
         self.model = keras.models.load_model(filepath)
         print(f"Model loaded from {filepath}")
         return self.model
 
 
-def train_model(data_dir='data/train', epochs=50, fine_tune_epochs=10):
+def train_model(data_dir='data/train', epochs=50, fine_tune_epochs=10, models_dir=None):
     """
     Main training function.
+    
+    Args:
+        data_dir: Directory containing training data
+        epochs: Number of training epochs
+        fine_tune_epochs: Number of fine-tuning epochs
+        models_dir: Directory to save models (defaults to project root/models)
     """
-    # Create models directory
-    os.makedirs('models', exist_ok=True)
+    # Determine models directory
+    if models_dir is None:
+        current_dir = os.path.abspath(os.getcwd())
+        if os.path.basename(current_dir) == 'notebook':
+            models_dir = os.path.join(os.path.dirname(current_dir), 'models')
+        elif os.path.exists(os.path.join(current_dir, 'src')):
+            models_dir = os.path.join(current_dir, 'models')
+        else:
+            models_dir = os.path.join(current_dir, 'models')
+    
+    models_dir = os.path.abspath(models_dir)
+    os.makedirs(models_dir, exist_ok=True)
     
     # Prepare data
     print("Preparing data...")
@@ -325,7 +417,8 @@ def train_model(data_dir='data/train', epochs=50, fine_tune_epochs=10):
     classifier = BrainTumorClassifier(
         img_size=(224, 224),
         num_classes=len(class_names),
-        base_model_name='MobileNetV2'
+        base_model_name='MobileNetV2',
+        models_dir=models_dir
     )
     classifier.class_names = class_names
     classifier.build_model()
@@ -358,8 +451,10 @@ def train_model(data_dir='data/train', epochs=50, fine_tune_epochs=10):
     classifier.save_model()
     
     # Save class names
-    with open('models/class_names.pkl', 'wb') as f:
+    class_names_path = os.path.join(models_dir, 'class_names.pkl')
+    with open(class_names_path, 'wb') as f:
         pickle.dump(class_names, f)
+    print(f"Class names saved to {class_names_path}")
     
     return classifier, results
 
