@@ -34,33 +34,6 @@ wheels/
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Models (large files) - uncomment if models are too large
-# models/*.h5
-# models/*.pkl
-# !models/.gitkeep
-
-# Data (if large) - ignore image files in train and test directories
-data/train/**/*.jpg
-data/train/**/*.jpeg
-data/train/**/*.png
-data/train/**/*.JPG
-data/train/**/*.JPEG
-data/train/**/*.PNG
-data/test/**/*.jpg
-data/test/**/*.jpeg
-data/test/**/*.png
-data/test/**/*.JPG
-data/test/**/*.JPEG
-data/test/**/*.PNG
-
-# Logs
-*.log
-logs/
-
 # Environment variables
 .env
 .env.local

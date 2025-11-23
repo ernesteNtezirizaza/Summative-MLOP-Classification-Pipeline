@@ -1,3 +1,0 @@
-# This file ensures the models directory is tracked by git
-# Model files (.h5, .pkl) will be added here after training
-
