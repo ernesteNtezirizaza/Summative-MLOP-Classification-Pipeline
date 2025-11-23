@@ -15,7 +15,10 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pickle
-from src.preprocessing import prepare_data_for_training, get_class_names
+try:
+    from src.preprocessing import prepare_data_for_training, get_class_names
+except ImportError:
+    from preprocessing import prepare_data_for_training, get_class_names
 
 
 class BrainTumorClassifier:

@@ -7,8 +7,14 @@ import os
 import shutil
 import numpy as np
 from datetime import datetime
-from src.model import BrainTumorClassifier, prepare_data_for_training
-from src.preprocessing import extract_features_from_directory
+try:
+    from src.model import BrainTumorClassifier
+    from src.preprocessing import extract_features_from_directory, prepare_data_for_training
+except ImportError:
+    import sys
+    sys.path.insert(0, 'src')
+    from model import BrainTumorClassifier
+    from preprocessing import extract_features_from_directory, prepare_data_for_training
 import pickle
 
 
@@ -89,7 +95,7 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     # Step 2: Extract features from updated training data
     print("\nStep 2: Extracting features from training data...")
     try:
-        extract_features_from_directory(main_data_dir, 'image_features_train.csv')
+        extract_features_from_directory(main_data_dir, 'data/processed/image_features_train.csv')
         print("Feature extraction completed.")
     except Exception as e:
         print(f"Warning: Feature extraction failed: {str(e)}")

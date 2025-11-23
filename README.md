@@ -117,7 +117,7 @@ Summative-MLOP-Classification-Pipeline/
    ```bash
    python src/preprocessing.py
    ```
-   This will create `image_features_train.csv` and `image_features_test.csv`.
+   This will create `data/processed/image_features_train.csv` and `data/processed/image_features_test.csv`.
 
 6. **Train the model**
    

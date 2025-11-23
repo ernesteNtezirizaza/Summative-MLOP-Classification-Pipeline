@@ -13,7 +13,10 @@ import io
 import cv2
 from datetime import datetime
 import os
-from src.prediction import BrainTumorPredictor
+try:
+    from src.prediction import BrainTumorPredictor
+except ImportError:
+    from prediction import BrainTumorPredictor
 import time
 
 app = FastAPI(title="Brain Tumor Classification API", version="1.0.0")

@@ -15,8 +15,12 @@ import time
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-from src.prediction import BrainTumorPredictor
-from src.preprocessing import extract_features_from_directory
+try:
+    from src.prediction import BrainTumorPredictor
+    from src.preprocessing import extract_features_from_directory
+except ImportError:
+    from prediction import BrainTumorPredictor
+    from preprocessing import extract_features_from_directory
 import subprocess
 import sys
 
@@ -206,7 +210,7 @@ elif page == "📊 Visualizations":
     st.markdown("Explore dataset features and insights.")
     
     # Check if feature CSV exists
-    feature_files = ['image_features_train.csv', 'image_features.csv']
+    feature_files = ['data/processed/image_features_train.csv', 'data/processed/image_features.csv', 'image_features_train.csv', 'image_features.csv']
     feature_file = None
     
     for f in feature_files:
@@ -305,7 +309,7 @@ elif page == "📊 Visualizations":
         if st.button("Extract Features"):
             with st.spinner("Extracting features from training data..."):
                 try:
-                    extract_features_from_directory('data/train', 'image_features_train.csv')
+                    extract_features_from_directory('data/train', 'data/processed/image_features_train.csv')
                     st.success("Features extracted successfully! Please refresh the page.")
                     st.rerun()
                 except Exception as e:

@@ -175,12 +175,16 @@ def get_class_names(data_dir):
 
 
 if __name__ == "__main__":
+    # Create processed directory if it doesn't exist
+    import os
+    os.makedirs('data/processed', exist_ok=True)
+    
     # Extract features from training data
     print("Extracting features from training data...")
-    train_df = extract_features_from_directory('data/train', 'image_features_train.csv')
+    train_df = extract_features_from_directory('data/train', 'data/processed/image_features_train.csv')
     
     print("\nExtracting features from test data...")
-    test_df = extract_features_from_directory('data/test', 'image_features_test.csv')
+    test_df = extract_features_from_directory('data/test', 'data/processed/image_features_test.csv')
     
     print("\nFeature extraction complete!")
 
