@@ -8,6 +8,7 @@ import shutil
 import numpy as np
 from datetime import datetime
 import time
+import tensorflow as tf
 try:
     from src.model import BrainTumorClassifier
     from src.preprocessing import extract_features_from_directory, prepare_data_for_training
@@ -209,16 +210,27 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     if os.path.exists(model_full_path):
         try:
             print(f"Loading existing model from {model_full_path}...")
-            classifier.load_model(model_filename)
-            # Unfreeze some layers for fine-tuning
-            for layer in classifier.model.layers[1].layers[-4:]:
-                layer.trainable = True
-            classifier.model.compile(
-                optimizer=classifier.model.optimizer,
-                loss=classifier.model.loss,
-                metrics=classifier.model.metrics
-            )
-            print("Existing model loaded and prepared for fine-tuning.")
+            # Load model to check number of classes
+            temp_model = tf.keras.models.load_model(model_full_path)
+            
+            # Check if number of classes matches
+            old_num_classes = temp_model.output_shape[-1]
+            if old_num_classes != num_classes:
+                print(f"Warning: Existing model has {old_num_classes} classes, but data has {num_classes} classes.")
+                print("Rebuilding model with correct number of classes...")
+                classifier.build_model()
+            else:
+                # Classes match, use existing model
+                classifier.model = temp_model
+                # Unfreeze some layers for fine-tuning
+                for layer in classifier.model.layers[1].layers[-4:]:
+                    layer.trainable = True
+                classifier.model.compile(
+                    optimizer=classifier.model.optimizer,
+                    loss=classifier.model.loss,
+                    metrics=classifier.model.metrics
+                )
+                print("Existing model loaded and prepared for fine-tuning.")
         except Exception as e:
             print(f"Could not load existing model: {str(e)}")
             print("Building new model...")
