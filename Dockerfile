@@ -26,7 +26,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p models data/train data/test data/retrain_uploads
+RUN mkdir -p models data/train data/test data/retrain_uploads static
+
+# Set environment variables to suppress CUDA warnings
+ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV CUDA_VISIBLE_DEVICES=""
 
 # Expose port for FastAPI
 EXPOSE 8000
@@ -37,5 +41,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Run FastAPI server
 # Use PORT environment variable if set (for Render), otherwise default to 8000
-CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Use shell form to properly expand PORT variable
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info --access-log"]
 

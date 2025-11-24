@@ -3,6 +3,11 @@ FastAPI endpoints for brain tumor classification.
 Provides prediction and retraining APIs.
 """
 
+import os
+# Suppress TensorFlow CUDA warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -14,14 +19,23 @@ from PIL import Image
 import io
 import cv2
 from datetime import datetime
-import os
 import pandas as pd
-import pandas as pd
+import logging
 try:
     from src.prediction import BrainTumorPredictor
 except ImportError:
     from prediction import BrainTumorPredictor
 import time
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Brain Tumor Classification API", version="1.0.0")
 
@@ -49,17 +63,21 @@ def load_predictor():
     """Load the predictor model."""
     global predictor
     try:
+        logger.info("Loading predictor model...")
         predictor = BrainTumorPredictor()
+        logger.info("Model loaded successfully")
         return True
     except Exception as e:
-        print(f"Error loading model: {str(e)}")
+        logger.error(f"Error loading model: {str(e)}")
         return False
 
 
 @app.on_event("startup")
 async def startup_event():
     """Load model on startup."""
+    logger.info("Starting application...")
     load_predictor()
+    logger.info("Application startup complete")
 
 
 @app.get("/")
@@ -407,6 +425,16 @@ if __name__ == "__main__":
     # Load predictor before starting server
     load_predictor()
     
-    # Run server
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Get port from environment variable or default to 8000
+    port = int(os.environ.get("PORT", 8000))
+    logger.info(f"Starting server on port {port}")
+    
+    # Run server with proper logging
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=port,
+        log_level="info",
+        access_log=True
+    )
 
