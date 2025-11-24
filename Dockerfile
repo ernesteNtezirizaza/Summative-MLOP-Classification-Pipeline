@@ -28,14 +28,14 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p models data/train data/test data/retrain_uploads
 
-# Expose port for Streamlit
-EXPOSE 8501
+# Expose port for FastAPI
+EXPOSE 8000
 
 # Health check (uses PORT environment variable)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD sh -c "python -c \"import requests; requests.get('http://localhost:${PORT:-8501}/_stcore/health')\"" || exit 1
+    CMD sh -c "python -c \"import requests; requests.get('http://localhost:${PORT:-8000}/health')\"" || exit 1
 
-# Run Streamlit app
-# Use PORT environment variable if set (for Render), otherwise default to 8501
-CMD ["sh", "-c", "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0 --server.headless=true"]
+# Run FastAPI server
+# Use PORT environment variable if set (for Render), otherwise default to 8000
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
