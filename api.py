@@ -5,7 +5,9 @@ Provides prediction and retraining APIs.
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 import uvicorn
 import numpy as np
 from PIL import Image
@@ -13,6 +15,8 @@ import io
 import cv2
 from datetime import datetime
 import os
+import pandas as pd
+import pandas as pd
 try:
     from src.prediction import BrainTumorPredictor
 except ImportError:
@@ -20,6 +24,9 @@ except ImportError:
 import time
 
 app = FastAPI(title="Brain Tumor Classification API", version="1.0.0")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # CORS middleware
 app.add_middleware(
@@ -57,7 +64,12 @@ async def startup_event():
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
+    """Serve the main HTML page."""
+    return FileResponse("static/index.html")
+
+@app.get("/api")
+async def api_info():
+    """API information endpoint."""
     return {
         "message": "Brain Tumor Classification API",
         "status": "running",
@@ -196,8 +208,8 @@ async def trigger_retrain(files: list[UploadFile] = File(...), class_name: str =
     
     db = get_database()
     
-    # Create upload directory
-    upload_dir = "data/retrain_uploads"
+    # Create upload directory with class subfolder
+    upload_dir = f"data/retrain_uploads/{class_name}"
     os.makedirs(upload_dir, exist_ok=True)
     
     saved_files = []
@@ -281,6 +293,114 @@ async def get_database_stats():
     db = get_database()
     stats = db.get_training_statistics()
     return stats
+
+
+@app.get("/visualizations/data")
+async def get_visualization_data():
+    """Get feature data for visualizations."""
+    feature_files = [
+        'data/processed/image_features_train.csv',
+        'data/processed/image_features.csv',
+        'image_features_train.csv',
+        'image_features.csv'
+    ]
+    
+    feature_file = None
+    for f in feature_files:
+        if os.path.exists(f):
+            feature_file = f
+            break
+    
+    if not feature_file:
+        return {
+            "features": [],
+            "total_samples": 0,
+            "source": "none",
+            "has_mean_intensity": False,
+            "has_std_intensity": False,
+            "has_gradient_mean": False
+        }
+    
+    try:
+        df = pd.read_csv(feature_file)
+        
+        # Prepare data
+        result = {
+            "features": df.to_dict('records'),
+            "total_samples": len(df),
+            "source": feature_file,
+            "has_mean_intensity": 'mean_intensity' in df.columns and 'class' in df.columns,
+            "has_std_intensity": 'std_intensity' in df.columns and 'class' in df.columns,
+            "has_gradient_mean": 'gradient_mean' in df.columns and 'mean_intensity' in df.columns and 'class' in df.columns
+        }
+        
+        # Add specific data arrays for charts
+        if result["has_mean_intensity"]:
+            result["mean_intensity_data"] = df[['class', 'mean_intensity']].to_dict('records')
+        
+        if result["has_std_intensity"]:
+            result["std_intensity_data"] = df[['class', 'std_intensity']].to_dict('records')
+        
+        if result["has_gradient_mean"]:
+            result["gradient_data"] = df[['class', 'mean_intensity', 'gradient_mean']].to_dict('records')
+        
+        # Class distribution
+        if 'class' in df.columns:
+            class_counts = df['class'].value_counts().to_dict()
+            result["class_distribution"] = class_counts
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading visualization data: {str(e)}")
+
+
+@app.get("/retrain/sessions")
+async def get_training_sessions(limit: int = 5):
+    """Get recent training sessions."""
+    try:
+        from src.database import get_database
+    except ImportError:
+        from database import get_database
+    
+    db = get_database()
+    sessions = db.get_training_sessions(limit=limit)
+    return sessions
+
+
+class RetrainRequest(BaseModel):
+    epochs: int = 10
+    fine_tune_epochs: int = 3
+
+@app.post("/retrain/trigger")
+async def trigger_retraining(request: RetrainRequest):
+    """Trigger model retraining."""
+    try:
+        from retrain import retrain_model
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Retraining module not found")
+    
+    try:
+        result = retrain_model(
+            retrain_data_dir='data/retrain_uploads',
+            epochs=request.epochs,
+            fine_tune_epochs=request.fine_tune_epochs
+        )
+        
+        if result:
+            # Reload predictor
+            load_predictor()
+            return {
+                "message": "Retraining completed successfully",
+                "epochs": request.epochs,
+                "fine_tune_epochs": request.fine_tune_epochs,
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Retraining failed")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Retraining error: {str(e)}")
 
 
 if __name__ == "__main__":
