@@ -192,7 +192,7 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     classifier = BrainTumorClassifier(
         img_size=(224, 224),
         num_classes=num_classes,
-        base_model_name='VGG16',
+        base_model_name='MobileNetV2',
         models_dir=models_dir
     )
     classifier.class_names = class_names
