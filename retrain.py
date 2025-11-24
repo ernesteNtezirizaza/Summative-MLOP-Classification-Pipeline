@@ -198,10 +198,18 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     classifier.class_names = class_names
     
     # Try to load existing model, otherwise build new one
-    if os.path.exists(model_save_path):
+    # Normalize model path - if it's relative and starts with 'models/', use just the filename
+    if model_save_path.startswith('models/'):
+        model_filename = os.path.basename(model_save_path)
+        model_full_path = os.path.join(models_dir, model_filename)
+    else:
+        model_filename = model_save_path
+        model_full_path = os.path.join(models_dir, model_filename) if not os.path.isabs(model_save_path) else model_save_path
+    
+    if os.path.exists(model_full_path):
         try:
-            print(f"Loading existing model from {model_save_path}...")
-            classifier.load_model(model_save_path)
+            print(f"Loading existing model from {model_full_path}...")
+            classifier.load_model(model_filename)
             # Unfreeze some layers for fine-tuning
             for layer in classifier.model.layers[1].layers[-4:]:
                 layer.trainable = True
@@ -262,9 +270,9 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
         print(f"Warning: Evaluation failed: {str(e)}")
     
     # Save model
-    print(f"\nStep 7: Saving model to {model_save_path}...")
+    print(f"\nStep 7: Saving model to {model_full_path}...")
     try:
-        classifier.save_model(model_save_path)
+        classifier.save_model(model_filename)
         
         # Save class names
         class_names_path = os.path.join(models_dir, 'class_names.pkl')
