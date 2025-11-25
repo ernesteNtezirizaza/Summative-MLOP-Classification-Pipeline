@@ -174,13 +174,13 @@
                     <h3>Retraining Configuration</h3>
                     <div class="form-group">
                         <label for="epochs">Training Epochs:</label>
-                        <input type="range" id="epochs" min="5" max="50" value="10" class="slider">
-                        <span id="epochsValue">10</span>
+                        <input type="range" id="epochs" min="1" max="50" value="3" class="slider">
+                        <span id="epochsValue">3</span>
                     </div>
                     <div class="form-group">
                         <label for="fineTuneEpochs">Fine-tuning Epochs:</label>
-                        <input type="range" id="fineTuneEpochs" min="0" max="10" value="3" class="slider">
-                        <span id="fineTuneEpochsValue">3</span>
+                        <input type="range" id="fineTuneEpochs" min="0" max="10" value="1" class="slider">
+                        <span id="fineTuneEpochsValue">1</span>
                     </div>
                     
                     <button class="btn btn-primary btn-large" id="retrainBtn" onclick="triggerRetraining()">

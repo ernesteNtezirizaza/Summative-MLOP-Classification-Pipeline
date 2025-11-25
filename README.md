@@ -14,7 +14,7 @@ This project implements an end-to-end Machine Learning Operations (MLOPs) pipeli
   - Preprocessing activities and logs
   - Training sessions with complete metrics history
 - **REST API**: FastAPI-based prediction endpoints
-- **Streamlit UI**: Interactive web interface with:
+- **Web Interface**: Modern HTML/CSS/JavaScript UI with:
   - Single image prediction
   - Data visualizations (3+ feature interpretations)
   - Bulk data upload for retraining (saved to database)
@@ -23,7 +23,7 @@ This project implements an end-to-end Machine Learning Operations (MLOPs) pipeli
   - Database statistics and training history
 - **Retraining Pipeline**: Automated retraining with data upload and database tracking
 - **Load Testing**: Locust-based performance testing
-- **Cloud Deployment**: Dockerized application ready for Render deployment
+- **Cloud Deployment**: Dockerized application ready for deployment on Render
 
 ## Dataset
 
@@ -40,55 +40,65 @@ The dataset is from Kaggle: [Brain Tumor MRI Dataset](https://www.kaggle.com/dat
 ```
 Summative-MLOP-Classification-Pipeline/
 │
-├── README.md
-├── DATABASE_IMPLEMENTATION.md
+├── README.md                  # Project documentation
+├── Dockerfile                 # Docker container configuration
+├── requirements.txt           # Python dependencies
+├── .dockerignore              # Docker ignore patterns
+│
+├── api.py                     # FastAPI REST endpoints
+├── app.py                     # Streamlit UI (alternative)
+├── retrain.py                 # Retraining script with database logging
+├── locustfile.py              # Load testing configuration
 │
 ├── notebook/
-│   └── brain_tumor_classification.ipynb
+│   └── brain_tumor_classification.ipynb  # Complete ML pipeline notebook
 │
 ├── src/
-│   ├── preprocessing.py      # Feature extraction
-│   ├── model.py              # Model training
-│   ├── prediction.py         # Prediction functions
-│   └── database.py           # Database management
+│   ├── preprocessing.py       # Feature extraction from images
+│   ├── model.py               # Model training and evaluation
+│   ├── prediction.py          # Prediction functions
+│   └── database.py            # Database management and tracking
+│
+├── static/
+│   ├── index.html             # Main web interface (HTML)
+│   ├── app.js                 # Frontend JavaScript
+│   └── style.css              # Styling (Poppins font family)
 │
 ├── data/
-│   ├── train/
+│   ├── train/                 # Training images organized by class
+│   │   ├── glioma/            # Glioma tumor images
+│   │   ├── meningioma/         # Meningioma tumor images
+│   │   ├── notumor/            # No tumor images
+│   │   ├── pituitary/          # Pituitary tumor images
+│   │   └── unknown/            # Unknown/unclassified images
+│   ├── test/                  # Test images organized by class
 │   │   ├── glioma/
 │   │   ├── meningioma/
 │   │   ├── notumor/
 │   │   └── pituitary/
-│   ├── test/
-│   │   ├── glioma/
-│   │   ├── meningioma/
-│   │   ├── notumor/
-│   │   └── pituitary/
-│   ├── processed/
+│   ├── processed/             # Processed feature data
 │   │   ├── image_features_train.csv
 │   │   └── image_features_test.csv
-│   ├── retrain_uploads/      # Uploaded images for retraining
-│   └── retraining_database.db # SQLite database
+│   ├── retrain_uploads/        # Uploaded images for retraining
+│   └── retraining_database.db  # SQLite database for tracking
 │
-├── models/
-│   ├── brain_tumor_model.h5
-│   ├── class_names.pkl
-│   └── visualizations/       # Saved visualization images
-│       ├── class_distribution.png
-│       ├── sample_images.png
-│       ├── feature_distributions.png
-│       ├── training_history.png
-│       ├── learning_curves.png
-│       ├── confusion_matrix_validation.png
-│       ├── confusion_matrix_test.png
-│       └── sample_prediction.png
-│
-├── app.py                    # Streamlit UI
-├── api.py                    # FastAPI endpoints
-├── retrain.py                # Retraining script
-├── locustfile.py             # Load testing
-├── Dockerfile
-├── requirements.txt
-└── .dockerignore
+└── models/
+    ├── brain_tumor_model.h5    # Trained model weights
+    ├── class_names.pkl         # Class label mappings
+    ├── models/                 # Nested models directory
+    │   └── visualizations/    # Retraining visualizations
+    │       ├── confusion_matrix_retrain.png
+    │       └── training_history_retrain.png
+    └── visualizations/         # Model training visualizations
+        ├── class_distribution.png
+        ├── sample_images.png
+        ├── feature_distributions.png
+        ├── training_history.png
+        ├── learning_curves.png
+        ├── confusion_matrix_validation.png
+        ├── confusion_matrix_validation_notebook.png
+        ├── confusion_matrix_test.png
+        └── sample_prediction.png
 ```
 
 ## Setup Instructions
@@ -153,9 +163,21 @@ Summative-MLOP-Classification-Pipeline/
    python src/model.py
    ```
 
-### Running the Application
+## Running the Application
 
-#### Option 1: Streamlit UI (Recommended for local development)
+### Option 1: FastAPI Server (Recommended)
+
+```bash
+python api.py
+```
+
+API will be available at `http://localhost:8000`
+- **Web Interface**: `http://localhost:8000`
+- **API Documentation**: `http://localhost:8000/docs`
+- **Health Check**: `http://localhost:8000/health`
+- **Uptime**: `http://localhost:8000/uptime`
+
+### Option 2: Streamlit UI (Alternative)
 
 ```bash
 streamlit run app.py
@@ -163,33 +185,23 @@ streamlit run app.py
 
 Access the UI at `http://localhost:8501`
 
-#### Option 2: FastAPI Server
-
-```bash
-python api.py
-```
-
-API will be available at `http://localhost:8000`
-- API Documentation: `http://localhost:8000/docs`
-- Health Check: `http://localhost:8000/health`
-- Uptime: `http://localhost:8000/uptime`
-
-#### Option 3: Docker
+### Option 3: Docker
 
 ```bash
 # Build the image
 docker build -t brain-tumor-classifier .
 
 # Run the container
-docker run -p 8501:8501 brain-tumor-classifier
+docker run -p 8000:8000 -e PORT=8000 brain-tumor-classifier
 ```
 
 ## Usage
 
 ### Prediction
 
-1. **Via Streamlit UI:**
-   - Navigate to the "Predict" tab
+1. **Via Web Interface:**
+   - Navigate to `http://localhost:8000`
+   - Click on "Predict" in the sidebar
    - Upload a single MRI image
    - Click "Predict" to get the classification result
 
@@ -202,11 +214,12 @@ docker run -p 8501:8501 brain-tumor-classifier
 
 ### Retraining
 
-1. **Via Streamlit UI:**
+1. **Via Web Interface:**
    - Navigate to the "Upload Data" tab
    - Upload multiple images (bulk upload) - **automatically saved to database**
    - Navigate to "Retrain Model" tab
    - View database statistics and recent training sessions
+   - Adjust training epochs (default: 3) and fine-tuning epochs (default: 1)
    - Click "Trigger Retraining" button
    - Monitor the retraining process (all activities logged to database)
 
@@ -217,6 +230,11 @@ docker run -p 8501:8501 brain-tumor-classifier
         -F "files=@image1.jpg" \
         -F "files=@image2.jpg" \
         -F "class_name=glioma"
+   
+   # Trigger retraining
+   curl -X POST "http://localhost:8000/retrain/trigger" \
+        -H "Content-Type: application/json" \
+        -d '{"epochs": 3, "fine_tune_epochs": 1}'
    
    # Check training status
    curl "http://localhost:8000/retrain/status"
@@ -242,27 +260,6 @@ locust -f locustfile.py --host=http://localhost:8000
 # Open browser: http://localhost:8089
 ```
 
-## Testing the Pipeline
-
-### Single Prediction
-
-Test the prediction functionality directly:
-```bash
-python src/prediction.py data/test/glioma/image1.jpg
-```
-
-### Retraining
-
-1. Upload images via Streamlit UI or API (automatically saved to database)
-2. Trigger retraining via UI or command line:
-```bash
-python retrain.py [epochs] [fine_tune_epochs]
-```
-3. All retraining activities are logged to the database:
-   - Preprocessing logs (images processed, features extracted, timing)
-   - Training session metrics (accuracy, precision, recall, F1-score)
-   - Image usage tracking (which images were used in training)
-
 ## Database Implementation
 
 The project includes a comprehensive SQLite database system that tracks the complete retraining pipeline:
@@ -272,7 +269,7 @@ The project includes a comprehensive SQLite database system that tracks the comp
 1. **Data File Uploading + Saving to Database**
    - All uploaded images are automatically saved to the database
    - Tracks: filename, class, file path, size, upload timestamp, metadata
-   - Accessible via Streamlit UI and FastAPI endpoints
+   - Accessible via Web Interface and FastAPI endpoints
 
 2. **Data Preprocessing Logging**
    - All preprocessing activities are logged to the database
@@ -296,11 +293,9 @@ The project includes a comprehensive SQLite database system that tracks the comp
 The database is automatically created at `data/retraining_database.db` on first use.
 
 **View Statistics:**
-- Streamlit UI: "Retrain Model" page shows database statistics
+- Web Interface: "Retrain Model" page shows database statistics
 - API: `GET /database/stats` endpoint
 - Python: `from src.database import get_database`
-
-For detailed documentation, see [DATABASE_IMPLEMENTATION.md](DATABASE_IMPLEMENTATION.md)
 
 ## Model Evaluation Metrics
 
@@ -314,9 +309,13 @@ The model is evaluated using:
 
 All metrics are automatically saved to the database for each training session.
 
-## Deployment on Render (Docker)
+## Deployment
 
-### Quick Steps
+### Deployment on Render
+
+Render is an excellent cloud platform for deploying Docker applications.
+
+#### Quick Start (5 Minutes)
 
 1. **Push code to GitHub:**
    ```bash
@@ -348,24 +347,50 @@ All metrics are automatically saved to the database for each training session.
    - Wait for build (5-15 minutes)
    - Your app will be live at: `https://your-app-name.onrender.com`
 
-### Detailed Guide
-
-For complete step-by-step instructions, see [RENDER_DOCKER_DEPLOYMENT.md](RENDER_DOCKER_DEPLOYMENT.md)
-
-### Important Notes
+#### Render Important Notes
 
 - **Dockerfile**: Must use `${PORT}` environment variable (already configured)
 - **Model File**: Ensure `models/brain_tumor_model.h5` exists in repository
 - **Free Tier**: 512 MB RAM may be insufficient for TensorFlow
 - **Recommended**: Use Starter plan ($7/month) or higher for better performance
 
-## Video Demo
+### Docker Configuration
 
-[YouTube Link - To be added]
+The project includes a Dockerfile configured for cloud deployment:
 
-## Results from Flood Request Simulation
+- **Base Image**: Python 3.9-slim
+- **Port**: Uses `PORT` environment variable (defaults to 8000)
+- **Health Check**: Configured for `/health` endpoint
+- **FastAPI Server**: Runs with uvicorn
 
-Load testing results with different numbers of Docker containers will be documented here after running Locust tests.
+#### Local Docker Testing
+
+```bash
+# Build Docker image
+docker build -t brain-tumor-app .
+
+# Run Docker container
+docker run -p 8000:8000 -e PORT=8000 brain-tumor-app
+
+# Test in browser
+# Open http://localhost:8000
+# Open http://localhost:8000/docs for API docs
+```
+
+### Deployment Checklist
+
+Before deploying, ensure:
+
+- [ ] Dockerfile exists and uses `${PORT}` environment variable
+- [ ] All code is committed to Git
+- [ ] Code is pushed to GitHub
+- [ ] Model file exists (`models/brain_tumor_model.h5`)
+- [ ] requirements.txt is complete
+- [ ] .dockerignore is configured
+- [ ] Account created on Render
+- [ ] GitHub connected to deployment platform
+- [ ] Deployment successful
+- [ ] Application tested and working
 
 ## Troubleshooting
 
@@ -381,45 +406,72 @@ Load testing results with different numbers of Docker containers will be documen
 - The code works on CPU, but GPU is recommended for training
 - Install TensorFlow GPU version if you have CUDA
 
+### Retraining Errors
+- Check that uploaded images exist in `data/retrain_uploads/`
+- Verify database is accessible: `data/retraining_database.db`
+- Check server logs for detailed error messages
+- Ensure sufficient memory for TensorFlow operations
+
+### Deployment Issues
+
+**Build Fails:**
+- Check Dockerfile syntax
+- Verify all files are in repository
+- Check requirements.txt has all dependencies
+
+**App Crashes on Startup:**
+- Check application logs
+- Verify model file exists
+- Check file paths are correct
+- Verify PORT environment variable is used correctly
+
+**Out of Memory:**
+- Upgrade to higher plan (Starter or Standard)
+- Optimize model loading (lazy loading)
+- Reduce batch sizes
+
 ## Technologies Used
 
 - **Deep Learning**: TensorFlow/Keras
 - **Database**: SQLite (for tracking and audit trail)
 - **API Framework**: FastAPI
-- **UI Framework**: Streamlit
+- **UI Framework**: HTML/CSS/JavaScript (Poppins font)
+- **Alternative UI**: Streamlit
 - **Load Testing**: Locust
 - **Containerization**: Docker
 - **Cloud Platform**: Render
 - **Data Visualization**: Matplotlib, Seaborn, Plotly
 
-## File Structure Details
+## API Endpoints
 
-```
-├── src/
-│   ├── preprocessing.py  # Feature extraction from images
-│   ├── model.py          # Model training and evaluation
-│   ├── prediction.py     # Prediction functions
-│   └── database.py       # Database management and tracking
-├── notebook/
-│   └── brain_tumor_classification.ipynb  # Complete ML pipeline
-├── data/
-│   ├── train/            # Training images (by class)
-│   ├── test/             # Test images (by class)
-│   ├── processed/        # Extracted features (CSV files)
-│   ├── retrain_uploads/  # Uploaded images for retraining
-│   └── retraining_database.db  # SQLite database
-├── models/
-│   ├── brain_tumor_model.h5        # Trained model (best checkpoint)
-│   ├── class_names.pkl             # Class labels
-│   └── visualizations/             # Saved plots and charts
-├── app.py                # Streamlit UI application
-├── api.py                # FastAPI REST endpoints
-├── retrain.py            # Retraining script with database logging
-├── locustfile.py         # Load testing configuration
-├── Dockerfile            # Docker container configuration
-├── requirements.txt      # Python dependencies
-└── DATABASE_IMPLEMENTATION.md  # Database documentation
-```
+### Main Endpoints
+
+- `GET /` - Web interface (HTML)
+- `GET /api` - API information
+- `GET /health` - Health check endpoint
+- `GET /uptime` - Uptime and statistics
+- `GET /docs` - Interactive API documentation (Swagger)
+- `GET /redoc` - Alternative API documentation
+
+### Prediction Endpoints
+
+- `POST /predict` - Predict brain tumor class from single image
+- `POST /predict/batch` - Batch prediction for multiple images
+
+### Retraining Endpoints
+
+- `POST /retrain` - Upload images for retraining
+- `POST /retrain/trigger` - Trigger model retraining
+- `GET /retrain/status` - Get retraining status
+- `GET /retrain/sessions` - Get recent training sessions
+
+### Database Endpoints
+
+- `GET /database/stats` - Get database statistics
+
+### Visualization Endpoints
+
+- `GET /visualizations/data` - Get feature data for visualizations
 
 ## Author
 
@@ -428,4 +480,3 @@ Load testing results with different numbers of Docker containers will be documen
 ## License
 
 This project is for educational purposes.
-

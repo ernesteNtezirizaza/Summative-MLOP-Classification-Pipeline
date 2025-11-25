@@ -521,7 +521,11 @@ async function triggerRetraining() {
     const fineTuneEpochs = document.getElementById('fineTuneEpochs').value;
     const resultDiv = document.getElementById('retrainResult');
     
-    resultDiv.innerHTML = '<div class="loading">Retraining model... This may take a while.</div>';
+    resultDiv.innerHTML = '<div class="loading">Retraining model... This may take a while. Please wait...</div>';
+    
+    // Create abort controller for timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 minutes timeout
     
     try {
         const response = await fetch(`${API_BASE}/retrain/trigger`, {
@@ -532,23 +536,51 @@ async function triggerRetraining() {
             body: JSON.stringify({
                 epochs: parseInt(epochs),
                 fine_tune_epochs: parseInt(fineTuneEpochs)
-            })
+            }),
+            signal: controller.signal
         });
         
+        clearTimeout(timeoutId);
+        
+        // Check if response is ok
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Retraining failed');
+            let errorMessage = 'Retraining failed';
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.message || errorData.detail || errorMessage;
+            } catch (e) {
+                // If response is not JSON, try to get text
+                try {
+                    const errorText = await response.text();
+                    errorMessage = errorText || errorMessage;
+                } catch (e2) {
+                    errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                }
+            }
+            throw new Error(errorMessage);
         }
         
-        const result = await response.json();
-        resultDiv.innerHTML = `
-            <div class="result-message success">
-                ✅ Model retraining completed successfully!
-            </div>
-            <div class="result-message info">
-                The model has been updated. New predictions will use the retrained model.
-            </div>
-        `;
+        // Try to parse JSON response
+        let result;
+        try {
+            const text = await response.text();
+            if (!text || text.trim() === '') {
+                throw new Error('Empty response from server');
+            }
+            result = JSON.parse(text);
+        } catch (parseError) {
+            throw new Error(`Failed to parse response: ${parseError.message}. The server may have timed out or encountered an error.`);
+        }
+        
+        if (result.status === 'success') {
+            resultDiv.innerHTML = `
+                <div class="result-message success">
+                    ✅ Model retraining completed successfully!
+                </div>
+            `;
+        } else {
+            throw new Error(result.message || 'Retraining failed');
+        }
         
         // Reload stats
         loadRetrainStats();
@@ -556,7 +588,15 @@ async function triggerRetraining() {
         checkModelStatus();
         
     } catch (error) {
-        resultDiv.innerHTML = `<div class="result-message error">Retraining error: ${error.message}</div>`;
+        clearTimeout(timeoutId);
+        let errorMessage = error.message;
+        if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+            errorMessage = 'Retraining request timed out. The process may still be running. Please check the server logs or try again later.';
+        } else if (error.message.includes('JSON') || error.message.includes('parse')) {
+            errorMessage = 'Server response error. The retraining process may have encountered an issue. Please check the server logs.';
+        }
+        resultDiv.innerHTML = `<div class="result-message error">Retraining error: ${errorMessage}</div>`;
+        console.error('Retraining error:', error);
     }
 }
 

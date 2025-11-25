@@ -387,38 +387,72 @@ async def get_training_sessions(limit: int = 5):
 
 
 class RetrainRequest(BaseModel):
-    epochs: int = 10
-    fine_tune_epochs: int = 3
+    epochs: int = 3
+    fine_tune_epochs: int = 1
 
 @app.post("/retrain/trigger")
 async def trigger_retraining(request: RetrainRequest):
     """Trigger model retraining."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    
     try:
         from retrain import retrain_model
     except ImportError:
         raise HTTPException(status_code=500, detail="Retraining module not found")
     
     try:
-        result = retrain_model(
-            retrain_data_dir='data/retrain_uploads',
-            epochs=request.epochs,
-            fine_tune_epochs=request.fine_tune_epochs
+        # Run retraining in a thread pool to avoid blocking
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        executor = ThreadPoolExecutor(max_workers=1)
+        
+        # Run the retraining function in a separate thread
+        result = await loop.run_in_executor(
+            executor,
+            lambda: retrain_model(
+                retrain_data_dir='data/retrain_uploads',
+                epochs=request.epochs,
+                fine_tune_epochs=request.fine_tune_epochs
+            )
         )
+        
+        executor.shutdown(wait=False)
         
         if result:
             # Reload predictor
             load_predictor()
-            return {
+            return JSONResponse({
                 "message": "Retraining completed successfully",
                 "epochs": request.epochs,
                 "fine_tune_epochs": request.fine_tune_epochs,
-                "timestamp": datetime.now().isoformat()
-            }
+                "timestamp": datetime.now().isoformat(),
+                "status": "success"
+            })
         else:
-            raise HTTPException(status_code=500, detail="Retraining failed")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "message": "Retraining failed",
+                    "status": "failed",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Retraining error: {str(e)}")
+        logger.error(f"Retraining error: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "message": f"Retraining error: {str(e)}",
+                "status": "error",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
 
 
 if __name__ == "__main__":
