@@ -497,9 +497,37 @@ async function loadRecentSessions() {
         html += '</tr></thead><tbody>';
         
         sessions.forEach(session => {
+            // Format timestamp properly
+            let timestampStr = '-';
+            if (session.session_timestamp) {
+                try {
+                    // Handle ISO format or SQLite format
+                    let date;
+                    if (session.session_timestamp.includes('T')) {
+                        // ISO format
+                        date = new Date(session.session_timestamp);
+                    } else {
+                        // SQLite format: YYYY-MM-DD HH:MM:SS
+                        date = new Date(session.session_timestamp.replace(' ', 'T'));
+                    }
+                    // Format with proper timezone
+                    timestampStr = date.toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                    });
+                } catch (e) {
+                    timestampStr = session.session_timestamp;
+                }
+            }
+            
             html += `<tr>
                 <td>${session.id}</td>
-                <td>${new Date(session.session_timestamp).toLocaleString()}</td>
+                <td>${timestampStr}</td>
                 <td>${session.status}</td>
                 <td>${session.epochs || '-'}</td>
                 <td>${session.final_accuracy ? (session.final_accuracy * 100).toFixed(2) + '%' : '-'}</td>

@@ -316,7 +316,24 @@ class DatabaseManager:
         rows = cursor.fetchall()
         conn.close()
         
-        return [dict(row) for row in rows]
+        # Convert to dictionaries and format timestamps
+        sessions = []
+        for row in rows:
+            session = dict(row)
+            # Convert SQLite timestamp to ISO format for better timezone handling
+            if 'session_timestamp' in session and session['session_timestamp']:
+                try:
+                    # SQLite format: YYYY-MM-DD HH:MM:SS
+                    if isinstance(session['session_timestamp'], str) and 'T' not in session['session_timestamp']:
+                        # Convert to ISO format with timezone
+                        dt = datetime.strptime(session['session_timestamp'], '%Y-%m-%d %H:%M:%S')
+                        session['session_timestamp'] = dt.isoformat()
+                except Exception as e:
+                    # If conversion fails, keep original
+                    pass
+            sessions.append(session)
+        
+        return sessions
     
     def get_training_statistics(self) -> Dict:
         """

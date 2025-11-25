@@ -383,6 +383,22 @@ async def get_training_sessions(limit: int = 5):
     
     db = get_database()
     sessions = db.get_training_sessions(limit=limit)
+    
+    # Convert timestamps to ISO format for proper timezone handling
+    for session in sessions:
+        if 'session_timestamp' in session and session['session_timestamp']:
+            # SQLite timestamps are stored as strings, convert to ISO format
+            if isinstance(session['session_timestamp'], str):
+                # Try to parse and reformat to ISO with timezone
+                try:
+                    from datetime import datetime
+                    # SQLite format: YYYY-MM-DD HH:MM:SS
+                    dt = datetime.strptime(session['session_timestamp'], '%Y-%m-%d %H:%M:%S')
+                    session['session_timestamp'] = dt.isoformat()
+                except:
+                    # If parsing fails, keep original
+                    pass
+    
     return sessions
 
 
@@ -395,11 +411,40 @@ async def trigger_retraining(request: RetrainRequest):
     """Trigger model retraining."""
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
+    import traceback
     
     try:
         from retrain import retrain_model
     except ImportError:
         raise HTTPException(status_code=500, detail="Retraining module not found")
+    
+    # Check if there's data to retrain with
+    try:
+        from src.database import get_database
+        db = get_database()
+        uploaded_images = db.get_uploaded_images(processed=False)
+        
+        # Also check if retrain_uploads directory has files
+        import os
+        retrain_dir = 'data/retrain_uploads'
+        has_files = False
+        if os.path.exists(retrain_dir):
+            for root, dirs, files in os.walk(retrain_dir):
+                if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files):
+                    has_files = True
+                    break
+        
+        if not uploaded_images and not has_files:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "message": "No data available for retraining. Please upload images first.",
+                    "status": "failed",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+    except Exception as e:
+        logger.warning(f"Could not check for retraining data: {str(e)}")
     
     try:
         # Run retraining in a thread pool to avoid blocking
@@ -411,19 +456,39 @@ async def trigger_retraining(request: RetrainRequest):
         
         executor = ThreadPoolExecutor(max_workers=1)
         
+        # Capture any exceptions from retraining
+        retrain_error = None
+        retrain_result = None
+        
+        def run_retrain():
+            nonlocal retrain_error, retrain_result
+            try:
+                retrain_result = retrain_model(
+                    retrain_data_dir='data/retrain_uploads',
+                    epochs=request.epochs,
+                    fine_tune_epochs=request.fine_tune_epochs
+                )
+            except Exception as e:
+                retrain_error = str(e)
+                logger.error(f"Retraining exception: {str(e)}", exc_info=True)
+                return False
+        
         # Run the retraining function in a separate thread
-        result = await loop.run_in_executor(
-            executor,
-            lambda: retrain_model(
-                retrain_data_dir='data/retrain_uploads',
-                epochs=request.epochs,
-                fine_tune_epochs=request.fine_tune_epochs
-            )
-        )
+        await loop.run_in_executor(executor, run_retrain)
         
         executor.shutdown(wait=False)
         
-        if result:
+        if retrain_error:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "message": f"Retraining error: {retrain_error}",
+                    "status": "error",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        if retrain_result:
             # Reload predictor
             load_predictor()
             return JSONResponse({
@@ -437,7 +502,7 @@ async def trigger_retraining(request: RetrainRequest):
             return JSONResponse(
                 status_code=500,
                 content={
-                    "message": "Retraining failed",
+                    "message": "Retraining failed. Check server logs for details. Possible reasons: no new data, model loading error, or training error.",
                     "status": "failed",
                     "timestamp": datetime.now().isoformat()
                 }
