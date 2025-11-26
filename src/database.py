@@ -213,7 +213,8 @@ class DatabaseManager:
     def update_training_session(self, session_id: int, status: str,
                                initial_metrics: Optional[Dict] = None,
                                final_metrics: Optional[Dict] = None,
-                               images_used: Optional[int] = None):
+                               images_used: Optional[int] = None,
+                               notes: Optional[str] = None):
         """
         Update training session with results.
         
@@ -223,6 +224,7 @@ class DatabaseManager:
             initial_metrics: Dictionary with initial model metrics
             final_metrics: Dictionary with final model metrics
             images_used: Number of images used in training
+            notes: Optional notes about the training session
         """
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -257,6 +259,10 @@ class DatabaseManager:
         if images_used is not None:
             updates.append("images_used = ?")
             params.append(images_used)
+        
+        if notes is not None:
+            updates.append("notes = ?")
+            params.append(notes)
         
         params.append(session_id)
         
