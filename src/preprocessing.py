@@ -119,10 +119,57 @@ def extract_features_from_directory(data_dir, output_csv='image_features.csv'):
     return df
 
 
+def count_images_in_directory(data_dir):
+    """
+    Count total number of images in a directory structure.
+    
+    Args:
+        data_dir: Root directory containing class subdirectories
+        
+    Returns:
+        Total number of images found
+    """
+    total_count = 0
+    if not os.path.exists(data_dir):
+        return 0
+    
+    class_dirs = [d for d in os.listdir(data_dir) 
+                 if os.path.isdir(os.path.join(data_dir, d))]
+    
+    for class_name in class_dirs:
+        class_path = os.path.join(data_dir, class_name)
+        image_files = [f for f in os.listdir(class_path) 
+                      if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        total_count += len(image_files)
+    
+    return total_count
+
+
 def prepare_data_for_training(data_dir, img_size=(224, 224), batch_size=32, validation_split=0.2):
     """
     Prepare data generators for training using Keras ImageDataGenerator.
+    
+    For small datasets, automatically adjusts validation_split to ensure
+    at least 1 validation sample.
     """
+    # Count total images to adjust validation split if needed
+    total_images = count_images_in_directory(data_dir)
+    
+    # For very small datasets, ensure at least 1 validation sample
+    if total_images > 0:
+        # Calculate minimum validation split needed for at least 1 sample
+        # Use 1.1/total_images to account for rounding in ImageDataGenerator
+        min_val_split = (1.1 / total_images) if total_images > 1 else 0.0
+        
+        # Use the larger of requested split or minimum needed
+        if validation_split < min_val_split and total_images > 1:
+            validation_split = min(min_val_split, 0.5)  # Cap at 0.5 to ensure reasonable train/val split
+            print(f"Adjusted validation split to {validation_split:.3f} to ensure at least 1 validation sample (total images: {total_images})")
+        elif total_images <= 1:
+            # If only 1 image, can't split - use all for training
+            validation_split = 0.0
+            print(f"Warning: Only 1 image found. Using all for training (no validation split)")
+    
     # Data augmentation for training
     train_datagen = ImageDataGenerator(
         rescale=1./255,
@@ -152,15 +199,17 @@ def prepare_data_for_training(data_dir, img_size=(224, 224), batch_size=32, vali
         shuffle=True
     )
     
-    # Validation generator
-    val_generator = val_datagen.flow_from_directory(
-        data_dir,
-        target_size=img_size,
-        batch_size=batch_size,
-        class_mode='categorical',
-        subset='validation',
-        shuffle=False
-    )
+    # Validation generator (only create if validation_split > 0)
+    val_generator = None
+    if validation_split > 0:
+        val_generator = val_datagen.flow_from_directory(
+            data_dir,
+            target_size=img_size,
+            batch_size=batch_size,
+            class_mode='categorical',
+            subset='validation',
+            shuffle=False
+        )
     
     return train_generator, val_generator
 

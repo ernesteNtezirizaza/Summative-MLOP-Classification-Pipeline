@@ -230,6 +230,17 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     # Step 3: Prepare data generators (using only new data from temp directory)
     print("\nStep 3: Preparing data generators (new data only)...")
     try:
+        # Require at least 2 images for retraining (need at least 1 for validation)
+        if image_count < 2:
+            error_msg = f"Insufficient images for retraining. Found {image_count} image(s), need at least 2 (1 for training, 1 for validation)."
+            print(f"Error: {error_msg}")
+            # Clean up temp directory
+            if os.path.exists(temp_data_dir):
+                shutil.rmtree(temp_data_dir)
+            db.update_training_session(training_session_id, status='failed', 
+                                       notes=error_msg)
+            return False
+        
         # Use smaller batch size for Render's memory constraints (512MB RAM)
         # Reduced from default 32 to 4 for small datasets
         batch_size = min(4, max(1, image_count // 10))  # Adaptive batch size based on data size
@@ -245,7 +256,7 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
         num_classes = len(class_names)
         print(f"Found {num_classes} classes: {class_names}")
         print(f"Using batch size: {batch_size} (optimized for small dataset and Render's memory constraints)")
-        print(f"Training samples: {train_gen.samples}, Validation samples: {val_gen.samples}")
+        print(f"Training samples: {train_gen.samples}, Validation samples: {val_gen.samples if val_gen else 0}")
         
         # Validate we have enough data
         if train_gen.samples < num_classes:
@@ -258,8 +269,9 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
                                        notes=error_msg)
             return False
         
-        if val_gen.samples == 0:
-            error_msg = "No validation samples available. Cannot train without validation data."
+        # Check validation generator
+        if val_gen is None or val_gen.samples == 0:
+            error_msg = "No validation samples available. Cannot train without validation data. Please upload at least 2 images."
             print(f"Error: {error_msg}")
             # Clean up temp directory
             if os.path.exists(temp_data_dir):
