@@ -211,7 +211,7 @@ async def predict_batch(files: list[UploadFile] = File(...)):
 
 
 @app.post("/retrain")
-async def trigger_retrain(files: list[UploadFile] = File(...), class_name: str = "unknown"):
+async def trigger_retrain(files: list[UploadFile] = File(...), class_name: str = "retraining_uploads"):
     """
     Upload images for retraining and save to database.
     """
