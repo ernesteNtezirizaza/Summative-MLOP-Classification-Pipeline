@@ -41,3 +41,9 @@ wheels/
 # Streamlit
 .streamlit/
 
+# Large data files and models
+data/retraining_database.db
+data/retrain_uploads/
+models/brain_tumor_model_retrained.h5
+data/processed/image_features_retrain_temp.csv
+
