@@ -1,5 +1,11 @@
 # Brain Tumor MRI Classification - MLOPs Pipeline
 
+## 🔗 Quick Links
+
+- **Video Demo**: [https://www.youtube.com/watch?v=UpqlYGE9rAc](https://www.youtube.com/watch?v=UpqlYGE9rAc)
+- **App Base URL**: [https://brain-tumor-classifier-xcon.onrender.com/](https://brain-tumor-classifier-xcon.onrender.com/)
+- **App Swagger Doc URL**: [https://brain-tumor-classifier-xcon.onrender.com/docs/](https://brain-tumor-classifier-xcon.onrender.com/docs/)
+
 ## Project Description
 
 This project implements an end-to-end Machine Learning Operations (MLOPs) pipeline for brain tumor classification from MRI images. The system classifies brain tumors into four categories: Glioma, Meningioma, No Tumor, and Pituitary tumor.
@@ -45,8 +51,7 @@ Summative-MLOP-Classification-Pipeline/
 ├── requirements.txt           # Python dependencies
 ├── .dockerignore              # Docker ignore patterns
 │
-├── api.py                     # FastAPI REST endpoints
-├── app.py                     # Streamlit UI (alternative)
+├── api.py                     # FastAPI REST endpoints and web server
 ├── retrain.py                 # Retraining script with database logging
 ├── locustfile.py              # Load testing configuration
 │
@@ -67,10 +72,9 @@ Summative-MLOP-Classification-Pipeline/
 ├── data/
 │   ├── train/                 # Training images organized by class
 │   │   ├── glioma/            # Glioma tumor images
-│   │   ├── meningioma/         # Meningioma tumor images
-│   │   ├── notumor/            # No tumor images
-│   │   ├── pituitary/          # Pituitary tumor images
-│   │   └── unknown/            # Unknown/unclassified images
+│   │   ├── meningioma/        # Meningioma tumor images
+│   │   ├── notumor/           # No tumor images
+│   │   └── pituitary/         # Pituitary tumor images
 │   ├── test/                  # Test images organized by class
 │   │   ├── glioma/
 │   │   ├── meningioma/
@@ -78,18 +82,21 @@ Summative-MLOP-Classification-Pipeline/
 │   │   └── pituitary/
 │   ├── processed/             # Processed feature data
 │   │   ├── image_features_train.csv
-│   │   └── image_features_test.csv
-│   ├── retrain_uploads/        # Uploaded images for retraining
-│   └── retraining_database.db  # SQLite database for tracking
+│   │   ├── image_features_test.csv
+│   │   └── image_features_retrain_temp.csv  # Temporary retraining features
+│   ├── retrain_uploads/       # Uploaded images for retraining (flat directory)
+│   │                           # Files saved with class prefix: {class_name}_{filename}
+│   └── retraining_database.db # SQLite database for tracking uploads and training
 │
 └── models/
-    ├── brain_tumor_model.h5    # Trained model weights
-    ├── class_names.pkl         # Class label mappings
-    ├── models/                 # Nested models directory
-    │   └── visualizations/    # Retraining visualizations
+    ├── brain_tumor_model.h5           # Original trained model weights
+    ├── brain_tumor_model_retrained.h5 # Retrained model weights
+    ├── class_names.pkl                # Class label mappings
+    ├── models/                        # Nested models directory
+    │   └── visualizations/            # Retraining visualizations
     │       ├── confusion_matrix_retrain.png
     │       └── training_history_retrain.png
-    └── visualizations/         # Model training visualizations
+    └── visualizations/                # Model training visualizations
         ├── class_distribution.png
         ├── sample_images.png
         ├── feature_distributions.png
@@ -113,7 +120,7 @@ Summative-MLOP-Classification-Pipeline/
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/ernesteNtezirizaza/Summative-MLOP-Classification-Pipeline
    cd Summative-MLOP-Classification-Pipeline
    ```
 
@@ -214,6 +221,8 @@ docker run -p 8000:8000 -e PORT=8000 brain-tumor-classifier
 
 ### Retraining
 
+**Important:** The retraining process uses **only newly uploaded data** (`data/retrain_uploads/`) for fine-tuning. The existing model is loaded as a pre-trained model and fine-tuned on the new data only.
+
 1. **Via Web Interface:**
    - Navigate to the "Upload Data" tab
    - Upload multiple images (bulk upload) - **automatically saved to database**
@@ -222,6 +231,7 @@ docker run -p 8000:8000 -e PORT=8000 brain-tumor-classifier
    - Adjust training epochs (default: 3) and fine-tuning epochs (default: 1)
    - Click "Trigger Retraining" button
    - Monitor the retraining process (all activities logged to database)
+   - **Note:** Retraining uses only newly uploaded data (original model preserved)
 
 2. **Via API:**
    ```bash
@@ -475,7 +485,7 @@ Before deploying, ensure:
 
 ## Author
 
-[Your Name]
+Erneste Ntezirizaza
 
 ## License
 

@@ -116,16 +116,3 @@ class QuickTestUser(BrainTumorAPIUser):
 class HeavyLoadUser(BrainTumorAPIUser):
     """Heavy load test with minimal wait times."""
     wait_time = between(0.1, 0.5)
-
-
-# Example usage:
-# locust -f locustfile.py --host=http://localhost:8000
-# 
-# For different user types:
-# locust -f locustfile.py --host=http://localhost:8000 -u 100 -r 10
-# 
-# Where:
-# -u: Number of users
-# -r: Spawn rate (users per second)
-# --host: API base URL
-

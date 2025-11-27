@@ -121,7 +121,7 @@ function displayImagePreview(file) {
     reader.readAsDataURL(file);
 }
 
-// Display Uploaded Files
+// Display Uploaded Files with class selection for each file
 function displayUploadedFiles(files) {
     const container = document.getElementById('uploadedFiles');
     if (files.length === 0) {
@@ -129,10 +129,30 @@ function displayUploadedFiles(files) {
         return;
     }
     
-    let html = '<h3>Selected Files:</h3><div class="uploaded-files">';
-    files.forEach(file => {
-        html += `<div class="uploaded-file-item">- ${file.name} (${formatFileSize(file.size)})</div>`;
+    let html = '<h3>Selected Files - ⚠️ IMPORTANT: Assign Class for Each File:</h3><div class="uploaded-files">';
+    files.forEach((file, index) => {
+        // Rotate default class to make it more obvious that selection is needed
+        const defaultClasses = ['glioma', 'meningioma', 'notumor', 'pituitary'];
+        const defaultClass = defaultClasses[index % defaultClasses.length];
+        
+        html += `
+            <div class="uploaded-file-item" style="display: flex; align-items: center; gap: 10px; margin: 10px 0; padding: 10px; border: 2px solid #4CAF50; border-radius: 5px; background-color: #f9f9f9;">
+                <div style="flex: 1;">
+                    <strong>${file.name}</strong> (${formatFileSize(file.size)})
+                </div>
+                <label style="font-weight: bold; color: #333;">Class:</label>
+                <select class="form-control file-class-select" data-file-index="${index}" style="width: 200px; padding: 8px; border: 2px solid #2196F3; border-radius: 4px; font-size: 14px;" required>
+                    <option value="glioma" ${defaultClass === 'glioma' ? 'selected' : ''}>Glioma</option>
+                    <option value="meningioma" ${defaultClass === 'meningioma' ? 'selected' : ''}>Meningioma</option>
+                    <option value="notumor" ${defaultClass === 'notumor' ? 'selected' : ''}>No Tumor</option>
+                    <option value="pituitary" ${defaultClass === 'pituitary' ? 'selected' : ''}>Pituitary</option>
+                </select>
+            </div>
+        `;
     });
+    html += '</div>';
+    html += '<div class="result-message warning" style="margin-top: 10px; background-color: #fff3cd; border: 2px solid #ffc107; padding: 10px; border-radius: 5px;">';
+    html += '⚠️ <strong>Important:</strong> Please verify and change the class selection for each file if needed. Files will be saved with their assigned classes.';
     html += '</div>';
     container.innerHTML = html;
 }
@@ -415,42 +435,116 @@ function renderPieChart(containerId, distribution, title) {
     }, {responsive: true});
 }
 
-// Save Files
+// Save Files with per-file class assignment
 async function saveFiles() {
     if (selectedFiles.length === 0) {
         showMessage('uploadResult', 'Please select files first.', 'error');
         return;
     }
     
-    const classSelect = document.getElementById('classSelect').value;
     const resultDiv = document.getElementById('uploadResult');
-    resultDiv.innerHTML = '<div class="loading">Saving files...</div>';
+    resultDiv.innerHTML = '<div class="loading">Saving files with their assigned classes...</div>';
     
     try {
-        const formData = new FormData();
-        selectedFiles.forEach(file => {
-            formData.append('files', file);
-        });
-        formData.append('class_name', classSelect);
+        // Get class assignments for each file
+        const fileClassAssignments = [];
+        const classSelects = document.querySelectorAll('.file-class-select');
         
-        const response = await fetch(`${API_BASE}/retrain`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to save files');
+        if (classSelects.length === 0) {
+            showMessage('uploadResult', 'Error: Class selection dropdowns not found. Please refresh and try again.', 'error');
+            return;
         }
         
-        const result = await response.json();
-        resultDiv.innerHTML = `
-            <div class="result-message success">
-                Successfully saved ${result.files_uploaded} file(s) to database.
-            </div>
-            <div class="result-message info">
+        classSelects.forEach((select, index) => {
+            if (index < selectedFiles.length) {
+                const selectedClass = select.value;
+                if (!selectedClass) {
+                    showMessage('uploadResult', `Error: No class selected for file ${selectedFiles[index].name}. Please select a class.`, 'error');
+                    return;
+                }
+                fileClassAssignments.push({
+                    file: selectedFiles[index],
+                    class_name: selectedClass
+                });
+            }
+        });
+        
+        // Validate that we have assignments for all files
+        if (fileClassAssignments.length !== selectedFiles.length) {
+            showMessage('uploadResult', 'Error: Class assignment mismatch. Please ensure all files have a class selected.', 'error');
+            return;
+        }
+        
+        // Show summary of class distribution
+        const classCounts = {};
+        fileClassAssignments.forEach(assignment => {
+            classCounts[assignment.class_name] = (classCounts[assignment.class_name] || 0) + 1;
+        });
+        const classSummary = Object.entries(classCounts).map(([cls, count]) => `${count} ${cls}`).join(', ');
+        resultDiv.innerHTML = `<div class="loading">Saving ${selectedFiles.length} file(s) with classes: ${classSummary}...</div>`;
+        
+        // Upload each file with its assigned class
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
+        
+        for (const assignment of fileClassAssignments) {
+            try {
+                const formData = new FormData();
+                formData.append('files', assignment.file);
+                formData.append('class_name', assignment.class_name);
+                
+                const response = await fetch(`${API_BASE}/retrain`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to save ${assignment.file.name}`);
+                }
+                
+                successCount++;
+            } catch (error) {
+                errorCount++;
+                errors.push(`${assignment.file.name}: ${error.message}`);
+            }
+        }
+        
+        // Show results with class distribution
+        let resultHtml = '';
+        if (successCount > 0) {
+            // Calculate class distribution from successfully saved files
+            const savedClassCounts = {};
+            fileClassAssignments.slice(0, successCount).forEach(assignment => {
+                savedClassCounts[assignment.class_name] = (savedClassCounts[assignment.class_name] || 0) + 1;
+            });
+            const classDistribution = Object.entries(savedClassCounts)
+                .map(([cls, count]) => `<strong>${count}</strong> ${cls}`)
+                .join(', ');
+            
+            resultHtml += `
+                <div class="result-message success">
+                    ✅ Successfully saved ${successCount} file(s) to database!
+                </div>
+                <div class="result-message info" style="margin-top: 10px;">
+                    📊 Class distribution: ${classDistribution}
+                </div>
+            `;
+        }
+        if (errorCount > 0) {
+            resultHtml += `
+                <div class="result-message error">
+                    ❌ Failed to save ${errorCount} file(s). Errors: ${errors.join(', ')}
+                </div>
+            `;
+        }
+        resultHtml += `
+            <div class="result-message info" style="margin-top: 10px;">
                 Files are ready for retraining. Go to 'Retrain Model' to trigger retraining.
             </div>
         `;
+        
+        resultDiv.innerHTML = resultHtml;
         
         // Clear selection
         selectedFiles = [];
@@ -493,11 +587,11 @@ async function loadRecentSessions() {
         }
         
         let html = '<h3>Recent Training Sessions</h3><table class="sessions-table"><thead><tr>';
-        html += '<th>ID</th><th>Timestamp</th><th>Status</th><th>Epochs</th><th>Accuracy</th><th>Images Used</th>';
+        html += '<th>ID</th><th>Status</th><th>Epochs</th><th>Accuracy</th><th>Images Used</th>';
         html += '</tr></thead><tbody>';
         
         sessions.forEach(session => {
-            // Format timestamp properly
+            // Format timestamp properly (already adjusted by +2 hours in API)
             let timestampStr = '-';
             if (session.session_timestamp) {
                 try {
@@ -510,7 +604,7 @@ async function loadRecentSessions() {
                         // SQLite format: YYYY-MM-DD HH:MM:SS
                         date = new Date(session.session_timestamp.replace(' ', 'T'));
                     }
-                    // Format with proper timezone
+                    // Format with proper timezone (timestamp already has +2 hours from API)
                     timestampStr = date.toLocaleString('en-US', {
                         year: 'numeric',
                         month: '2-digit',
@@ -527,7 +621,6 @@ async function loadRecentSessions() {
             
             html += `<tr>
                 <td>${session.id}</td>
-                <td>${timestampStr}</td>
                 <td>${session.status}</td>
                 <td>${session.epochs || '-'}</td>
                 <td>${session.final_accuracy ? (session.final_accuracy * 100).toFixed(2) + '%' : '-'}</td>

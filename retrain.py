@@ -22,68 +22,34 @@ except ImportError:
 import pickle
 
 
-def prepare_retrain_data(retrain_data_dir, main_data_dir='data/train'):
-    """
-    Prepare retraining data by organizing uploaded files into class folders.
-    Moves files from retrain_uploads to appropriate class folders in training data.
-    """
-    print(f"Preparing retraining data from {retrain_data_dir}...")
-    
-    if not os.path.exists(retrain_data_dir):
-        print(f"Retraining directory not found: {retrain_data_dir}")
-        return False
-    
-    # Get class subdirectories
-    class_dirs = [d for d in os.listdir(retrain_data_dir) 
-                 if os.path.isdir(os.path.join(retrain_data_dir, d))]
-    
-    if not class_dirs:
-        print("No class directories found in retrain_uploads")
-        return False
-    
-    moved_count = 0
-    
-    # Move files to main training directory
-    for class_name in class_dirs:
-        source_dir = os.path.join(retrain_data_dir, class_name)
-        target_dir = os.path.join(main_data_dir, class_name)
-        
-        # Create target directory if it doesn't exist
-        os.makedirs(target_dir, exist_ok=True)
-        
-        # Get image files
-        image_files = [f for f in os.listdir(source_dir) 
-                        if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-        
-        # Move files
-        for img_file in image_files:
-            source_path = os.path.join(source_dir, img_file)
-            target_path = os.path.join(target_dir, f"retrain_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{img_file}")
-            
-            try:
-                shutil.move(source_path, target_path)
-                moved_count += 1
-            except Exception as e:
-                print(f"Error moving {source_path}: {str(e)}")
-    
-    print(f"Moved {moved_count} files to training directory")
-    return moved_count > 0
+# NOTE: The retraining flow uses prepare_retrain_data_from_database() which:
+# 1. Reads from data/retrain_uploads (where files are uploaded)
+# 2. Creates a temporary directory data/temp_retrain for training
+# 3. Validates class names (only glioma, meningioma, notumor, pituitary)
+# 4. Does NOT move files to data/train/unknown or any other permanent location
+# This ensures retraining uses only the retrain_uploads folder, not data/train/unknown
 
 
-def prepare_retrain_data_from_database(db, temp_data_dir='data/temp_retrain', retrain_data_dir='data/retrain_uploads'):
+def prepare_retrain_data_from_database(db, temp_data_dir='data/temp_retrain', retrain_data_dir='data/retrain_uploads', main_data_dir='data/train'):
     """
     Prepare retraining data from database (newly uploaded, unprocessed images only).
     Creates a temporary directory with only new data for retraining.
     
+    IMPORTANT: This function uses ONLY NEWLY UPLOADED data (from retrain_uploads).
+    The existing model is loaded as a pre-trained model and fine-tuned on the new data only.
+    
+    Files are copied to a temporary directory for training. Original files are preserved.
+    
     Args:
         db: Database instance
-        temp_data_dir: Temporary directory to store new data
-        retrain_data_dir: Directory where retraining uploads are stored
+        temp_data_dir: Temporary directory to store new data (default: data/temp_retrain)
+        retrain_data_dir: Directory where retraining uploads are stored (default: data/retrain_uploads)
+        main_data_dir: Directory containing original training data (unused, kept for compatibility)
     
     Returns:
         tuple: (temp_data_dir, image_count, image_ids) or (None, 0, []) if no data
     """
-    print(f"Preparing retraining data from database...")
+    print(f"Preparing retraining data from database (newly uploaded images only)...")
     
     uploaded_images = db.get_uploaded_images(processed=False)
     
@@ -92,11 +58,16 @@ def prepare_retrain_data_from_database(db, temp_data_dir='data/temp_retrain', re
         # Fallback: If no database images, check retrain_uploads directory
         if os.path.exists(retrain_data_dir):
             print("No database images found, checking retrain_uploads directory...")
-            # This part would copy files from retrain_uploads to temp_data_dir
-            # For now, we'll just return None to indicate no new data from DB
-            # and let the calling function decide if it wants to use existing retrain_uploads
+            # Check if there are any files in retrain_uploads
+            has_files = False
+            for root, dirs, files in os.walk(retrain_data_dir):
+                if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files):
+                    has_files = True
+                    break
+            if not has_files:
+                return None, 0, []
+        else:
             return None, 0, []
-        return None, 0, []
     
     # Clean up old temp directory if it exists
     if os.path.exists(temp_data_dir):
@@ -106,10 +77,19 @@ def prepare_retrain_data_from_database(db, temp_data_dir='data/temp_retrain', re
     image_count = 0
     image_ids = []
     
+    # Define valid brain tumor classes
+    valid_classes = {'glioma', 'meningioma', 'notumor', 'pituitary'}
+    
+    print(f"Copying newly uploaded data from database...")
     for img_record in uploaded_images:
         file_path = img_record.get('file_path')
-        class_name = img_record.get('class_name', 'retraining_uploads')  # Default to 'retraining_uploads' if not specified
+        class_name = img_record.get('class_name', 'glioma')  # Default to 'glioma' if not specified
         image_id = img_record.get('id')
+        
+        # Skip images with invalid class names
+        if class_name not in valid_classes:
+            print(f"Warning: Skipping image ID {image_id} with invalid class name '{class_name}'. Valid classes are: {', '.join(valid_classes)}")
+            continue
         
         if not file_path or not os.path.exists(file_path):
             print(f"Warning: File not found for image ID {image_id}: {file_path}")
@@ -123,6 +103,11 @@ def prepare_retrain_data_from_database(db, temp_data_dir='data/temp_retrain', re
         filename = os.path.basename(file_path)
         target_path = os.path.join(class_dir, filename)
         
+        # Handle filename conflicts by adding a prefix
+        if os.path.exists(target_path):
+            base, ext = os.path.splitext(filename)
+            target_path = os.path.join(class_dir, f"new_{base}_{image_id}{ext}")
+        
         try:
             shutil.copy2(file_path, target_path)
             image_count += 1
@@ -130,7 +115,7 @@ def prepare_retrain_data_from_database(db, temp_data_dir='data/temp_retrain', re
         except Exception as e:
             print(f"Error copying {file_path}: {str(e)}")
     
-    print(f"Prepared {image_count} images from database in {temp_data_dir}")
+    print(f"Prepared {image_count} newly uploaded images for retraining in {temp_data_dir}")
     return temp_data_dir, image_count, image_ids
 
 
@@ -138,19 +123,24 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
                   main_data_dir='data/train',
                   epochs=10,
                   fine_tune_epochs=3,
-                  model_save_path='models/brain_tumor_model.h5'):
+                  model_save_path='models/brain_tumor_model_retrained.h5'):
     """
     Main retraining function.
     
+    IMPORTANT: This function uses ONLY NEWLY UPLOADED data (from retrain_uploads) 
+    for retraining. The existing model is loaded as a pre-trained model and 
+    fine-tuned on the new data only.
+    
     Steps:
     1. Create training session in database
-    2. Prepare retraining data (move uploaded files to training directory)
+    2. Prepare retraining data from database (newly uploaded images only)
     3. Extract features from new data (with database logging)
-    4. Prepare data generators
-    5. Load existing model or create new one
-    6. Retrain the model
+    4. Prepare data generators from newly uploaded data only
+    5. Load existing model (as pre-trained model)
+    6. Retrain/fine-tune the model on new data only
     7. Evaluate and save
     8. Update database with results
+    9. Clean up temporary directories
     """
     # Initialize database
     db = get_database()
@@ -159,8 +149,8 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     training_session_id = db.create_training_session(
         epochs=epochs,
         fine_tune_epochs=fine_tune_epochs,
-        model_path=model_save_path,
-        notes=f"Retraining with data from {retrain_data_dir}"
+        model_path=model_save_path,  # This will be brain_tumor_model_retrained.h5
+        notes=f"Retraining with newly uploaded data only ({retrain_data_dir}). Original model preserved."
     )
     
     print("=" * 50)
@@ -172,8 +162,12 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     db.update_training_session(training_session_id, status='in_progress')
     
     # Step 1: Prepare retraining data from database (newly uploaded images only)
-    print("\nStep 1: Preparing retraining data from database...")
-    temp_data_dir, image_count, image_ids = prepare_retrain_data_from_database(db, retrain_data_dir=retrain_data_dir)
+    print("\nStep 1: Preparing retraining data from database (newly uploaded images only)...")
+    temp_data_dir, image_count, image_ids = prepare_retrain_data_from_database(
+        db, 
+        retrain_data_dir=retrain_data_dir,
+        main_data_dir=main_data_dir
+    )
     
     if not temp_data_dir or image_count == 0:
         print("No new data to retrain with. Exiting.")
@@ -227,8 +221,8 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
             error_message=error_msg
         )
     
-    # Step 3: Prepare data generators (using only new data from temp directory)
-    print("\nStep 3: Preparing data generators (new data only)...")
+    # Step 3: Prepare data generators (using only newly uploaded data)
+    print("\nStep 3: Preparing data generators (newly uploaded data only)...")
     try:
         # Require at least 2 images for retraining (need at least 1 for validation)
         if image_count < 2:
@@ -247,16 +241,40 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
         train_gen, val_gen = prepare_data_for_training(temp_data_dir, batch_size=batch_size)
         class_names = list(train_gen.class_indices.keys())
         
-        # Filter out 'unknown' class if present
-        if 'unknown' in class_names:
-            print(f"Warning: 'unknown' class found in data. Filtering it out...")
-            class_names = [name for name in class_names if name != 'unknown']
+        # Define valid brain tumor classes
+        valid_classes = {'glioma', 'meningioma', 'notumor', 'pituitary'}
+        
+        # Filter out invalid classes (unknown, retraining_uploads, retrain_uploads, etc.)
+        invalid_classes = [name for name in class_names if name not in valid_classes]
+        if invalid_classes:
+            print(f"Warning: Invalid class names found in data: {invalid_classes}")
+            print(f"These classes will be filtered out. Only valid classes will be used for training.")
+            class_names = [name for name in class_names if name in valid_classes]
             print(f"Filtered classes: {class_names}")
+        
+        # Ensure we have at least one valid class
+        if not class_names:
+            error_msg = "No valid brain tumor classes found. Valid classes are: glioma, meningioma, notumor, pituitary."
+            print(f"Error: {error_msg}")
+            if os.path.exists(temp_data_dir):
+                shutil.rmtree(temp_data_dir)
+            db.update_training_session(training_session_id, status='failed', 
+                                       notes=error_msg)
+            return False
         
         num_classes = len(class_names)
         print(f"Found {num_classes} classes: {class_names}")
         print(f"Using batch size: {batch_size} (optimized for small dataset and Render's memory constraints)")
         print(f"Training samples: {train_gen.samples}, Validation samples: {val_gen.samples if val_gen else 0}")
+        
+        # Warn about small datasets
+        if image_count < 20:
+            print(f"\n⚠️  WARNING: Retraining with only {image_count} newly uploaded images ({train_gen.samples} training, {val_gen.samples} validation)")
+            print(f"   Very small datasets can lead to:")
+            print(f"   - Overfitting (model memorizes the data)")
+            print(f"   - Unrealistic 100% accuracy (not generalizable)")
+            print(f"   - Poor performance on new, unseen images")
+            print(f"   Recommendation: Upload at least 20-30 images per class for reliable results.")
         
         # Validate we have enough data
         if train_gen.samples < num_classes:
@@ -294,7 +312,7 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
         return False
     
     # Step 4: Load or create model
-    print("\nStep 4: Loading/Creating model...")
+    print("\nStep 4: Loading existing model as pre-trained model...")
     # Determine models directory (project root)
     current_dir = os.path.abspath(os.getcwd())
     if os.path.basename(current_dir) == 'notebook':
@@ -314,20 +332,23 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     )
     classifier.class_names = class_names
     
-    # Try to load existing model, otherwise build new one
-    # Normalize model path - if it's relative and starts with 'models/', use just the filename
-    if model_save_path.startswith('models/'):
-        model_filename = os.path.basename(model_save_path)
-        model_full_path = os.path.join(models_dir, model_filename)
-    else:
-        model_filename = model_save_path
-        model_full_path = os.path.join(models_dir, model_filename) if not os.path.isabs(model_save_path) else model_save_path
+    # Load the original model as pre-trained model (not the retrained one)
+    original_model_path = os.path.join(models_dir, 'brain_tumor_model.h5')
     
-    if os.path.exists(model_full_path):
+    # Determine path for saving retrained model
+    if model_save_path.startswith('models/'):
+        retrained_model_filename = os.path.basename(model_save_path)
+        retrained_model_full_path = os.path.join(models_dir, retrained_model_filename)
+    else:
+        retrained_model_filename = model_save_path
+        retrained_model_full_path = os.path.join(models_dir, retrained_model_filename) if not os.path.isabs(model_save_path) else model_save_path
+    
+    # Load original model as pre-trained model
+    if os.path.exists(original_model_path):
         try:
-            print(f"Loading existing model from {model_full_path}...")
-            # Load model to check number of classes
-            temp_model = tf.keras.models.load_model(model_full_path)
+            print(f"Loading original model from {original_model_path} as pre-trained model...")
+            # Load original model to check number of classes
+            temp_model = tf.keras.models.load_model(original_model_path)
             
             # Check if number of classes matches
             old_num_classes = temp_model.output_shape[-1]
@@ -412,11 +433,13 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
             )
         
         print(f"Starting training with {train_gen.samples} training samples and {val_gen.samples} validation samples...")
+        # Use retrained model path for checkpoint to preserve original model
         classifier.train(
             train_gen,
             val_gen,
             epochs=epochs,
-            fine_tune_epochs=fine_tune_epochs
+            fine_tune_epochs=fine_tune_epochs,
+            checkpoint_path=retrained_model_filename  # Save checkpoints to retrained model path, not original
         )
         print("Model fine-tuning completed.")
     except Exception as e:
@@ -446,10 +469,25 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
         }
         
         print(f"\n=== Retraining Evaluation Results ===")
+        print(f"Training samples: {train_gen.samples}")
+        print(f"Validation samples: {val_gen.samples}")
+        print(f"Newly uploaded images used: {image_count}")
         print(f"Accuracy: {results['accuracy']:.4f}")
         print(f"Precision: {results['precision']:.4f}")
         print(f"Recall: {results['recall']:.4f}")
         print(f"F1-Score: {results['f1_score']:.4f}")
+        
+        # Warn about suspiciously high accuracy on small datasets
+        if results['accuracy'] >= 1.0 and val_gen.samples < 20:
+            print(f"\n⚠️  WARNING: 100% accuracy achieved with only {val_gen.samples} validation samples!")
+            print(f"   This is likely due to overfitting on a very small dataset.")
+            print(f"   For reliable results, retrain with at least 20-30 images per class.")
+            print(f"   Current dataset: {image_count} newly uploaded images across {num_classes} classes.")
+            print(f"   Recommendation: Upload more images before deploying this model.")
+        
+        elif results['accuracy'] >= 0.95 and val_gen.samples < 10:
+            print(f"\n⚠️  WARNING: Very high accuracy ({results['accuracy']:.2%}) with only {val_gen.samples} validation samples.")
+            print(f"   This may indicate overfitting. Consider uploading more images for better generalization.")
         
         # Plot results
         classifier.plot_training_history('models/visualizations/training_history_retrain.png')
@@ -461,10 +499,11 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     except Exception as e:
         print(f"Warning: Evaluation failed: {str(e)}")
     
-    # Save model
-    print(f"\nStep 7: Saving model to {model_full_path}...")
+    # Save retrained model with new name
+    print(f"\nStep 7: Saving retrained model to {retrained_model_full_path}...")
+    print(f"Original model preserved at: {original_model_path}")
     try:
-        classifier.save_model(model_filename)
+        classifier.save_model(retrained_model_filename)
         
         # Save class names
         class_names_path = os.path.join(models_dir, 'class_names.pkl')
@@ -498,21 +537,16 @@ def retrain_model(retrain_data_dir='data/retrain_uploads',
     except Exception as e:
         print(f"Warning: Failed to remove temporary directory: {str(e)}")
     
-    # Clean up retrain_uploads directory (optional - keep files for reference)
-    print("\nCleaning up retraining uploads directory...")
-    try:
-        if os.path.exists(retrain_data_dir):
-            for class_dir in os.listdir(retrain_data_dir):
-                class_path = os.path.join(retrain_data_dir, class_dir)
-                if os.path.isdir(class_path):
-                    shutil.rmtree(class_path)
-        print("Cleanup completed.")
-    except Exception as e:
-        print(f"Warning: Cleanup failed: {str(e)}")
+    # Keep retrain_uploads directory files for reference and future retraining
+    # Files are tracked in database, so they can be kept for audit trail
+    print(f"\nNote: Uploaded files preserved in {retrain_data_dir} for reference.")
+    print("Files are tracked in database and can be used for future retraining if needed.")
     
     print("\n" + "=" * 50)
     print("Model Retraining Process Completed Successfully!")
     print(f"Retrained on {image_count} newly uploaded images from database")
+    print(f"Original model: models/brain_tumor_model.h5 (preserved)")
+    print(f"Retrained model: {model_save_path} (saved)")
     print("=" * 50)
     
     return True

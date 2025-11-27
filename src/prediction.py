@@ -36,12 +36,46 @@ class BrainTumorPredictor:
         """
         self.model = keras.models.load_model(model_path)
         
+        # Define valid brain tumor classes
+        valid_classes = {'glioma', 'meningioma', 'notumor', 'pituitary'}
+        
+        # Store original class names from pickle for mapping model outputs
+        self.original_class_names = None
+        self.class_mapping = None  # Maps original indices to filtered indices
+        
         if os.path.exists(class_names_path):
             with open(class_names_path, 'rb') as f:
-                self.class_names = pickle.load(f)
+                loaded_class_names = pickle.load(f)
+            
+            # Store original class names for mapping
+            self.original_class_names = loaded_class_names
+            
+            # Filter out 'unknown' and any other invalid classes
+            self.class_names = [name for name in loaded_class_names if name in valid_classes]
+            
+            # Create mapping from original class indices to filtered class indices
+            self.class_mapping = {}
+            filtered_idx = 0
+            for orig_idx, class_name in enumerate(loaded_class_names):
+                if class_name in valid_classes:
+                    self.class_mapping[orig_idx] = filtered_idx
+                    filtered_idx += 1
+            
+            # If filtering removed classes, warn and use defaults
+            if len(self.class_names) != len(loaded_class_names):
+                removed = [name for name in loaded_class_names if name not in valid_classes]
+                print(f"Warning: Removed invalid classes from model: {removed}")
+                print(f"Using valid classes only: {self.class_names}")
+            
+            # Ensure we have valid classes
+            if not self.class_names:
+                print("Warning: No valid classes found in class_names.pkl. Using defaults.")
+                self.class_names = ['glioma', 'meningioma', 'notumor', 'pituitary']
+                self.class_mapping = {0: 0, 1: 1, 2: 2, 3: 3}
         else:
             # Default class names if file doesn't exist
             self.class_names = ['glioma', 'meningioma', 'notumor', 'pituitary']
+            self.class_mapping = {0: 0, 1: 1, 2: 2, 3: 3}
         
         print(f"Model loaded successfully. Classes: {self.class_names}")
     
@@ -90,10 +124,41 @@ class BrainTumorPredictor:
         # Make prediction
         predictions = self.model.predict(processed_img, verbose=0)
         
-        # Get predicted class
-        predicted_class_idx = np.argmax(predictions[0])
-        predicted_class = self.class_names[predicted_class_idx]
-        confidence = float(predictions[0][predicted_class_idx])
+        # Get the original model's predicted class index
+        original_predicted_idx = np.argmax(predictions[0])
+        
+        # Map to filtered class index if model has 'unknown' or other invalid classes
+        if self.class_mapping and original_predicted_idx in self.class_mapping:
+            # Valid class, use mapped index
+            predicted_class_idx = self.class_mapping[original_predicted_idx]
+            predicted_class = self.class_names[predicted_class_idx]
+            confidence = float(predictions[0][original_predicted_idx])
+        elif original_predicted_idx < len(self.class_names):
+            # Direct mapping (no filtering needed)
+            predicted_class_idx = original_predicted_idx
+            predicted_class = self.class_names[predicted_class_idx]
+            confidence = float(predictions[0][original_predicted_idx])
+        else:
+            # Invalid prediction (e.g., 'unknown' class), find best valid class
+            # Get probabilities for valid classes only
+            valid_probs = []
+            valid_indices = []
+            for orig_idx, class_name in enumerate(self.original_class_names if self.original_class_names else self.class_names):
+                if class_name in {'glioma', 'meningioma', 'notumor', 'pituitary'}:
+                    valid_probs.append(predictions[0][orig_idx])
+                    valid_indices.append(orig_idx)
+            
+            if valid_probs:
+                best_valid_idx = np.argmax(valid_probs)
+                original_best_idx = valid_indices[best_valid_idx]
+                predicted_class_idx = self.class_mapping.get(original_best_idx, 0)
+                predicted_class = self.class_names[predicted_class_idx]
+                confidence = float(predictions[0][original_best_idx])
+            else:
+                # Fallback
+                predicted_class_idx = 0
+                predicted_class = self.class_names[0]
+                confidence = float(predictions[0][0])
         
         # Prepare result
         result = {
@@ -102,11 +167,23 @@ class BrainTumorPredictor:
             'class_index': int(predicted_class_idx)
         }
         
-        # Add all probabilities if requested
+        # Add all probabilities if requested (only for valid classes)
         if return_probabilities:
             probabilities = {}
-            for idx, class_name in enumerate(self.class_names):
-                probabilities[class_name] = float(predictions[0][idx])
+            if self.original_class_names and self.class_mapping:
+                # Map from original model outputs to filtered class names
+                for orig_idx, class_name in enumerate(self.original_class_names):
+                    if class_name in {'glioma', 'meningioma', 'notumor', 'pituitary'}:
+                        if orig_idx < len(predictions[0]):
+                            filtered_idx = self.class_mapping.get(orig_idx)
+                            if filtered_idx is not None:
+                                probabilities[self.class_names[filtered_idx]] = float(predictions[0][orig_idx])
+            else:
+                # Direct mapping
+                for idx, class_name in enumerate(self.class_names):
+                    if idx < len(predictions[0]):
+                        probabilities[class_name] = float(predictions[0][idx])
+            
             result['probabilities'] = probabilities
         
         return result

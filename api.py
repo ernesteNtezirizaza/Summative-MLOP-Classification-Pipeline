@@ -211,12 +211,20 @@ async def predict_batch(files: list[UploadFile] = File(...)):
 
 
 @app.post("/retrain")
-async def trigger_retrain(files: list[UploadFile] = File(...), class_name: str = "retraining_uploads"):
+async def trigger_retrain(files: list[UploadFile] = File(...), class_name: str = "glioma"):
     """
     Upload images for retraining and save to database.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
+    
+    # Validate class name - only allow valid brain tumor classes
+    valid_classes = {'glioma', 'meningioma', 'notumor', 'pituitary'}
+    if class_name not in valid_classes:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid class name '{class_name}'. Valid classes are: glioma, meningioma, notumor, pituitary"
+        )
     
     # Import database
     try:
@@ -226,8 +234,8 @@ async def trigger_retrain(files: list[UploadFile] = File(...), class_name: str =
     
     db = get_database()
     
-    # Create upload directory with class subfolder
-    upload_dir = f"data/retrain_uploads/{class_name}"
+    # Create upload directory (save directly to retrain_uploads, not in class subfolders)
+    upload_dir = "data/retrain_uploads"
     os.makedirs(upload_dir, exist_ok=True)
     
     saved_files = []
@@ -237,7 +245,17 @@ async def trigger_retrain(files: list[UploadFile] = File(...), class_name: str =
         # Save uploaded files
         for file in files:
             contents = await file.read()
-            file_path = os.path.join(upload_dir, file.filename)
+            # Save directly to retrain_uploads directory
+            # Use class_name in filename to preserve class information
+            filename_with_class = f"{class_name}_{file.filename}"
+            file_path = os.path.join(upload_dir, filename_with_class)
+            
+            # Handle filename conflicts by adding a timestamp
+            if os.path.exists(file_path):
+                base, ext = os.path.splitext(file.filename)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                filename_with_class = f"{class_name}_{base}_{timestamp}{ext}"
+                file_path = os.path.join(upload_dir, filename_with_class)
             
             # Save to disk
             with open(file_path, "wb") as f:
@@ -384,16 +402,18 @@ async def get_training_sessions(limit: int = 5):
     db = get_database()
     sessions = db.get_training_sessions(limit=limit)
     
-    # Convert timestamps to ISO format for proper timezone handling
+    # Convert timestamps to ISO format and add 2 hours for timezone adjustment
     for session in sessions:
         if 'session_timestamp' in session and session['session_timestamp']:
             # SQLite timestamps are stored as strings, convert to ISO format
             if isinstance(session['session_timestamp'], str):
                 # Try to parse and reformat to ISO with timezone
                 try:
-                    from datetime import datetime
+                    from datetime import datetime, timedelta
                     # SQLite format: YYYY-MM-DD HH:MM:SS
                     dt = datetime.strptime(session['session_timestamp'], '%Y-%m-%d %H:%M:%S')
+                    # Add 2 hours to the timestamp
+                    dt = dt + timedelta(hours=2)
                     session['session_timestamp'] = dt.isoformat()
                 except:
                     # If parsing fails, keep original

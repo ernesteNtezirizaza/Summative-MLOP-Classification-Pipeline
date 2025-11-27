@@ -120,13 +120,28 @@ class BrainTumorClassifier:
         
         return self.model
     
-    def train(self, train_generator, val_generator, epochs=50, fine_tune_epochs=10):
+    def train(self, train_generator, val_generator, epochs=50, fine_tune_epochs=10, checkpoint_path=None):
         """
         Train the model with early stopping and learning rate reduction.
         Includes fine-tuning phase.
+        
+        Args:
+            train_generator: Training data generator
+            val_generator: Validation data generator
+            epochs: Number of epochs for initial training
+            fine_tune_epochs: Number of epochs for fine-tuning
+            checkpoint_path: Optional path for ModelCheckpoint. If None, uses default brain_tumor_model.h5.
+                            Set to a different path (e.g., 'brain_tumor_model_retrained.h5') to preserve original model.
         """
         # Get model path in project root's models folder
-        model_path = os.path.join(self.models_dir, 'brain_tumor_model.h5')
+        if checkpoint_path is None:
+            model_path = os.path.join(self.models_dir, 'brain_tumor_model.h5')
+        else:
+            # If relative path, make it relative to models_dir
+            if not os.path.isabs(checkpoint_path):
+                model_path = os.path.join(self.models_dir, checkpoint_path)
+            else:
+                model_path = checkpoint_path
         
         # Callbacks optimized for high accuracy
         callbacks = [
